@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dungeon-maestro-sidecar"
+version = "0.1.0"
+description = "Phase 1 audio pipeline sidecar for DungeonMaestro"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26,<3",
+  "PyYAML>=6.0,<7",
+  "sounddevice>=0.4.6,<1",
+  "yt-dlp>=2025.1.0,<2026.0.0",
+]
+
+[project.optional-dependencies]
+ml = [
+  "faster-whisper>=1.0.0,<2",
+]
+
+[project.scripts]
+dungeon-maestro-sidecar = "dungeon_maestro_sidecar.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

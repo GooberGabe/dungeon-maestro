@@ -1,0 +1,18 @@
+{
+  "session_id": "2026-03-09T18:53:25",
+  "active_collection": "ambient",
+  "track_index": 0,
+  "cooldown_remaining": 0,
+  "next_track_index_by_collection": {
+    "ambient": 1
+  },
+  "log": [
+    {
+      "time": "18:53:52",
+      "event": "track_selected",
+      "collection": "ambient",
+      "track_index": 0,
+      "title": "DnD Calm Fantasy Music for Adventure and Exploration | 3 Hour Mix for Dungeons & Dragons"
+    }
+  ]
+}

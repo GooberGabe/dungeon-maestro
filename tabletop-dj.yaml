@@ -1,0 +1,59 @@
+settings:
+  cooldown_seconds: 180
+  whisper_model: base
+  default_collection: ambient
+  transition_popup_timeout: 30
+
+collections:
+  ambient:
+    name: "Ambient Exploration"
+    keywords:
+      - explore
+      - travel
+      - walk
+      - ambient
+    tracks:
+      - source: "fantasy exploration ambience"
+      - source: "forest ambience for tabletop rpg"
+    playback:
+      mode: sequential_loop
+
+  combat:
+    name: "Combat"
+    keywords:
+      - combat
+      - fight
+      - battle
+      - initiative
+      - roll for initiative
+    tracks:
+      - source: "epic combat music dnd"
+      - source: "Bloodborne Soundtrack full OST"
+      - source: "intense orchestral battle music"
+    playback:
+      mode: sequential_loop
+
+  tavern:
+    name: "Tavern"
+    keywords:
+      - tavern
+      - inn
+      - rest
+      - town
+    tracks:
+      - source: "medieval tavern music ambience"
+    playback:
+      mode: sequential_loop
+
+  dungeon:
+    name: "Dungeon"
+    keywords:
+      - dungeon
+      - cave
+      - underground
+      - darkness
+    tracks:
+      - source: "dark dungeon ambience no music"
+      - source: "cavern ambience dark fantasy"
+    playback:
+      mode: sequential_loop
