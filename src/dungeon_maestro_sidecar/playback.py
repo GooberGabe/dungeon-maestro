@@ -5,6 +5,7 @@ from pathlib import Path
 from shutil import which
 import subprocess
 import sys
+import threading
 from typing import BinaryIO
 from urllib.parse import urlparse
 
@@ -238,3 +239,92 @@ class FfmpegStdoutStreamer:
 
         hostname = urlparse(query).netloc.lower()
         return "youtube.com" in hostname or "youtu.be" in hostname
+
+
+class LocalAudioPlayer:
+    def __init__(self, ffmpeg_path: str | None = None, output_device: str | int | None = None) -> None:
+        self._streamer = FfmpegStdoutStreamer(ffmpeg_path)
+        self._output_device = output_device
+        self._worker: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._current_track_title: str | None = None
+        self._last_error: str | None = None
+
+    @property
+    def current_track_title(self) -> str | None:
+        return self._current_track_title
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    def play(self, track: ResolvedTrack) -> None:
+        self.stop()
+        self._stop_event = threading.Event()
+        self._last_error = None
+        self._current_track_title = track.title
+        self._worker = threading.Thread(target=self._play_worker, args=(track, self._stop_event), daemon=True)
+        self._worker.start()
+
+    def stop(self) -> None:
+        with self._lock:
+            worker = self._worker
+            stop_event = self._stop_event
+            self._worker = None
+            self._current_track_title = None
+        if worker is None:
+            return
+        stop_event.set()
+        worker.join(timeout=5)
+
+    def _play_worker(self, track: ResolvedTrack, stop_event: threading.Event) -> None:
+        try:
+            sd = __import__("sounddevice")
+        except ImportError as exc:
+            self._last_error = f"sounddevice is required for local playback: {exc}"
+            return
+
+        process, ytdlp_process = self._streamer._start_processes(track, self._streamer._build_ffmpeg_pcm_command())
+        frame_bytes = 4
+        hit_stop = False
+        buffered = b""
+
+        try:
+            with sd.RawOutputStream(
+                samplerate=48_000,
+                channels=2,
+                dtype="int16",
+                device=self._output_device,
+            ) as output_stream:
+                stdout_pipe = process.stdout
+                assert stdout_pipe is not None
+                while not stop_event.is_set():
+                    chunk = stdout_pipe.read(4096)
+                    if not chunk:
+                        break
+
+                    buffered += chunk
+                    usable = len(buffered) - (len(buffered) % frame_bytes)
+                    if usable <= 0:
+                        continue
+
+                    output_stream.write(buffered[:usable])
+                    buffered = buffered[usable:]
+
+                if stop_event.is_set():
+                    hit_stop = True
+        except Exception as exc:
+            self._last_error = str(exc)
+        finally:
+            stderr_output, ytdlp_stderr = self._streamer._finalize_processes(process, ytdlp_process, hit_stop)
+            if not hit_stop and process.returncode not in (0, None):
+                message = stderr_output.decode("utf-8", errors="replace").strip()
+                self._last_error = message or f"ffmpeg exited with code {process.returncode}"
+            if not hit_stop and ytdlp_process.returncode not in (0, None):
+                message = ytdlp_stderr.decode("utf-8", errors="replace").strip()
+                self._last_error = message or f"yt-dlp exited with code {ytdlp_process.returncode}"
+            with self._lock:
+                if self._worker is not None and threading.current_thread() is self._worker:
+                    self._worker = None
+                    self._current_track_title = None

@@ -30,6 +30,9 @@ class SpeechGate(Protocol):
 class PipelineEvent:
     event_type: str
     message: str
+    track: ResolvedTrack | None = None
+    collection_id: str | None = None
+    track_index: int | None = None
 
 
 class PipelineSession:
@@ -161,6 +164,7 @@ class PipelineSession:
             PipelineEvent(
                 event_type="keyword_match",
                 message=f"keyword={match.keyword!r} -> collection={match.collection_name}",
+                collection_id=match.collection_id,
             )
         )
 
@@ -171,6 +175,9 @@ class PipelineSession:
                 PipelineEvent(
                     event_type="selected_track",
                     message=f"next_track={resolved.title}",
+                    track=resolved,
+                    collection_id=match.collection_id,
+                    track_index=track_index,
                 )
             )
             self._append_log(

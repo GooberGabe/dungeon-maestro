@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
 from .audio import MicrophoneAudioSource
 from .config import ConfigError, load_pipeline_config
-from .playback import FfmpegStdoutStreamer
+from .discord_bot import DiscordVoiceBridge
+from .playback import FfmpegStdoutStreamer, LocalAudioPlayer
 from .persistence import SessionStateStore
 from .session import PipelineSession
 from .tracks import YtDlpTrackResolver
@@ -15,7 +17,7 @@ from .vad import SileroVadGate
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="DungeonMaestro Phase 2 sidecar CLI")
+    parser = argparse.ArgumentParser(description="DungeonMaestro Phase 3 sidecar CLI")
     parser.add_argument(
         "--list-audio-devices",
         action="store_true",
@@ -64,6 +66,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--write-active-track-wav",
         help="Write the active collection's next track to a WAV file instead of piping raw PCM to stdout.",
     )
+    parser.add_argument(
+        "--discord-token",
+        help="Discord bot token. Defaults to the DISCORD_BOT_TOKEN environment variable.",
+    )
+    parser.add_argument(
+        "--discord-guild-id",
+        type=int,
+        help="Optional Discord guild id used to resolve the target voice channel.",
+    )
+    parser.add_argument(
+        "--discord-voice-channel-id",
+        type=int,
+        help="Discord voice channel id to join for playback.",
+    )
+    parser.add_argument(
+        "--no-auto-play",
+        action="store_true",
+        help="Disable automatic local playback when a live keyword match selects a track.",
+    )
     return parser
 
 
@@ -84,6 +105,11 @@ def default_session_state_path(config_path: Path) -> Path:
 
 def main() -> int:
     args = build_parser().parse_args()
+    discord_token = args.discord_token or os.environ.get("DISCORD_BOT_TOKEN")
+    if args.discord_voice_channel_id is not None and not discord_token:
+        print("[startup] Discord playback requested but no token was provided")
+        return 1
+
     if args.list_audio_devices:
         try:
             default_input, devices = MicrophoneAudioSource.list_input_devices()
@@ -215,6 +241,33 @@ def main() -> int:
         print(f"[startup] {exc}", file=log_stream)
         return 1
 
+    player: LocalAudioPlayer | None = None
+    discord_bridge: DiscordVoiceBridge | None = None
+    if not args.no_auto_play:
+        try:
+            player = LocalAudioPlayer()
+            print("[startup] automatic local playback enabled", file=log_stream)
+        except RuntimeError as exc:
+            print(f"[startup] automatic playback unavailable: {exc}", file=log_stream)
+
+    if args.discord_voice_channel_id is not None:
+        try:
+            discord_bridge = DiscordVoiceBridge(
+                token=discord_token or "",
+                guild_id=args.discord_guild_id,
+                voice_channel_id=args.discord_voice_channel_id,
+            )
+            discord_bridge.start()
+            print(
+                f"[startup] connected Discord bot to voice channel {args.discord_voice_channel_id}",
+                file=log_stream,
+            )
+        except RuntimeError as exc:
+            if player is not None:
+                player.stop()
+            print(f"[startup] Discord playback unavailable: {exc}", file=log_stream)
+            return 1
+
     print("[startup] opening microphone stream", file=log_stream)
     print(f"[startup] using input device: {device_description}", file=log_stream)
     print("[startup] press Ctrl+C to stop", file=log_stream)
@@ -224,12 +277,38 @@ def main() -> int:
         for chunk in audio_source.stream_chunks():
             for event in session.process_chunk(chunk):
                 print(f"[{event.event_type}] {event.message}", file=log_stream)
+                if player is not None and event.event_type == "selected_track" and event.track is not None:
+                    player.play(event.track)
+                    print(f"[playback_started] {event.track.title}", file=log_stream)
+                if discord_bridge is not None and event.event_type == "selected_track" and event.track is not None:
+                    try:
+                        discord_bridge.play(event.track)
+                    except RuntimeError as exc:
+                        print(f"[discord_playback_error] {exc}", file=log_stream)
+                    else:
+                        print(f"[discord_playback_started] {event.track.title}", file=log_stream)
+                if player is not None and player.last_error:
+                    print(f"[playback_error] {player.last_error}", file=log_stream)
+                    player.stop()
     except KeyboardInterrupt:
+        if discord_bridge is not None:
+            discord_bridge.stop()
+        if player is not None:
+            player.stop()
         print("\n[shutdown] stopped by user", file=log_stream)
         return 0
     except RuntimeError as exc:
+        if discord_bridge is not None:
+            discord_bridge.stop()
+        if player is not None:
+            player.stop()
         print(f"[error] {exc}", file=log_stream)
         return 1
+
+    if discord_bridge is not None:
+        discord_bridge.stop()
+    if player is not None:
+        player.stop()
 
     return 0
 

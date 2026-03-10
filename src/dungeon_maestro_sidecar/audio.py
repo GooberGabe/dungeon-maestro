@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from importlib import import_module
-from queue import Queue
+from queue import Empty, Queue
+import threading
 
 import numpy as np
 
@@ -66,7 +67,7 @@ class MicrophoneAudioSource:
             return f"{name} ({channels} in)"
         return f"{name} ({channels} in, default {sample_rate:.0f} Hz)"
 
-    def stream_chunks(self) -> Iterator[np.ndarray]:
+    def stream_chunks(self, stop_event: threading.Event | None = None) -> Iterator[np.ndarray]:
         try:
             sd = _load_optional_module("sounddevice")
         except ImportError as exc:
@@ -91,4 +92,9 @@ class MicrophoneAudioSource:
             callback=callback,
         ):
             while True:
-                yield chunk_queue.get()
+                if stop_event is not None and stop_event.is_set():
+                    break
+                try:
+                    yield chunk_queue.get(timeout=0.25)
+                except Empty:
+                    continue

@@ -1,5 +1,5 @@
 {
-  "session_id": "2026-03-09T19:36:45",
+  "session_id": "2026-03-09T20:46:48",
   "active_collection": "combat",
   "track_index": 0,
   "cooldown_remaining": 180,
@@ -8,16 +8,16 @@
   },
   "log": [
     {
-      "time": "19:37:31",
+      "time": "20:47:36",
       "event": "track_selected",
       "collection": "combat",
       "track_index": 0,
       "title": "D&D/RPG Combat Music Mix | 1 Hour | Royalty Free | Travis Savoie"
     },
     {
-      "time": "19:37:31",
+      "time": "20:47:36",
       "event": "collection_switch",
-      "keyword": "roll for initiative",
+      "keyword": "initiative",
       "collection": "combat",
       "cooldown_seconds": 180
     }

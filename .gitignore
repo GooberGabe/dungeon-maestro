@@ -6,3 +6,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+desktop/node_modules/
+desktop/dist/
+desktop/.vite/
+desktop/.electron-state.json
