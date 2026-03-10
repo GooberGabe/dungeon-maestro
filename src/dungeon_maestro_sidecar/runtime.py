@@ -8,14 +8,21 @@ from .audio import MicrophoneAudioSource
 from .config import load_pipeline_config
 from .discord_bot import DiscordVoiceBridge
 from .persistence import SessionStateStore
-from .playback import LocalAudioPlayer
+from .playback import LocalAudioPlayer, PlaybackController
 from .session import PipelineEvent, PipelineSession
 from .tracks import YtDlpTrackResolver
-from .transcription import FasterWhisperTranscriber, NullTranscriber
+from .transcription import FasterWhisperTranscriber, NullTranscriber, normalize_transcription_profile
 from .vad import SileroVadGate
 
 
 EventCallback = Callable[[str, dict[str, object]], None]
+
+
+def normalize_output_mode(output_mode: str | None) -> str:
+    candidate = (output_mode or "local").strip().lower()
+    if candidate not in {"local", "discord"}:
+        raise RuntimeError("output_mode must be either 'local' or 'discord'")
+    return candidate
 
 
 @dataclass(slots=True)
@@ -26,6 +33,13 @@ class RuntimeOptions:
     resume: bool = False
     input_device: str | int | None = None
     no_transcription: bool = False
+    transcription_profile: str | None = None
+    enable_transition_proposals: bool | None = None
+    transition_popup_timeout: int | None = None
+    volume_percent: int | None = None
+    muted: bool | None = None
+    paused: bool | None = None
+    output_mode: str | None = None
     no_auto_play: bool = False
     discord_token: str | None = None
     discord_guild_id: int | None = None
@@ -40,8 +54,17 @@ class LiveSessionRuntime:
         self._audio_source: MicrophoneAudioSource | None = None
         self._worker: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._playback_controller = PlaybackController(
+            volume_percent=options.volume_percent if options.volume_percent is not None else 100,
+            muted=options.muted if options.muted is not None else False,
+        )
         self._player: LocalAudioPlayer | None = None
         self._discord_bridge: DiscordVoiceBridge | None = None
+        self._current_track = None
+        self._session_lock = threading.RLock()
+        playback_snapshot = self._playback_controller.snapshot()
+        initial_output_mode = normalize_output_mode(options.output_mode)
+        self._options.output_mode = initial_output_mode
         self._status: dict[str, object] = {
             "sessionRunning": False,
             "activeCollection": None,
@@ -49,12 +72,26 @@ class LiveSessionRuntime:
             "currentTrackIndex": None,
             "lastTranscript": "",
             "lastError": "",
+            "pendingTransition": None,
+            "transcriptionProfile": None,
+            "outputMode": initial_output_mode,
+            "volumePercent": playback_snapshot["volume_percent"],
+            "playbackMuted": playback_snapshot["muted"],
+            "playbackPaused": bool(options.paused),
         }
 
     def start(self) -> dict[str, object]:
         settings, collections = load_pipeline_config(self._options.config_path)
         if self._options.input_device is not None:
             settings.input_device = self._options.input_device
+        if self._options.transcription_profile is not None:
+            settings.transcription_profile = normalize_transcription_profile(self._options.transcription_profile)
+        if self._options.enable_transition_proposals is not None:
+            settings.enable_transition_proposals = self._options.enable_transition_proposals
+        if self._options.transition_popup_timeout is not None:
+            if self._options.transition_popup_timeout <= 0:
+                raise RuntimeError("transition_popup_timeout must be greater than 0")
+            settings.transition_popup_timeout = self._options.transition_popup_timeout
 
         session_state_path = self._options.session_state_path
         state_store = SessionStateStore(session_state_path) if session_state_path else None
@@ -63,7 +100,10 @@ class LiveSessionRuntime:
             resumed_state = state_store.load()
 
         speech_gate = SileroVadGate(settings.sample_rate_hz)
-        transcriber = NullTranscriber() if self._options.no_transcription else FasterWhisperTranscriber(settings.whisper_model)
+        transcriber = NullTranscriber() if self._options.no_transcription else FasterWhisperTranscriber(
+            settings.whisper_model,
+            settings.transcription_profile,
+        )
         resolver = YtDlpTrackResolver()
 
         self._session = PipelineSession(
@@ -82,6 +122,8 @@ class LiveSessionRuntime:
         self._audio_source = MicrophoneAudioSource(settings)
         self._status["sessionRunning"] = True
         self._status["activeCollection"] = self._session.state.active_collection_id
+        self._status["pendingTransition"] = self._session.pending_transition_payload()
+        self._status["transcriptionProfile"] = settings.transcription_profile
         self._emit(
             "session_ready",
             {
@@ -101,23 +143,123 @@ class LiveSessionRuntime:
         for event in self._session.warm_resolve_tracks():
             self._emit("resolve_event", {"event_type": event.event_type, "message": event.message})
 
-        if not self._options.no_auto_play:
-            self._player = LocalAudioPlayer()
+        self._configure_output_mode(self._options.output_mode, replay_current_track=False)
 
-        if self._options.discord_voice_channel_id is not None:
-            self._discord_bridge = DiscordVoiceBridge(
-                token=self._options.discord_token or "",
-                guild_id=self._options.discord_guild_id,
-                voice_channel_id=self._options.discord_voice_channel_id,
-            )
-            self._discord_bridge.start()
-            self._emit("discord_connected", {"voice_channel_id": self._options.discord_voice_channel_id})
-
-        self.skip_track(initial=True)
+        if self._options.starting_collection is not None:
+            self.skip_track(initial=True)
+        if self._status["playbackPaused"]:
+            self._apply_pause_state(True)
 
         self._stop_event.clear()
         self._worker = threading.Thread(target=self._run_loop, daemon=True, name="dungeon-maestro-runtime")
         self._worker.start()
+        return self.status_snapshot()
+
+    def update_output_mode(self, output_mode: str) -> dict[str, object]:
+        next_mode = normalize_output_mode(output_mode)
+        with self._session_lock:
+            if self._session is None:
+                raise RuntimeError("Session is not running")
+            self._configure_output_mode(next_mode, replay_current_track=True)
+
+        self._emit("output_mode_updated", {"outputMode": self._status["outputMode"]})
+        return self.status_snapshot()
+
+    def update_playback_settings(
+        self,
+        *,
+        volume_percent: int | None = None,
+        muted: bool | None = None,
+        paused: bool | None = None,
+    ) -> dict[str, object]:
+        if volume_percent is not None:
+            self._playback_controller.set_volume_percent(volume_percent)
+            self._options.volume_percent = int(volume_percent)
+        if muted is not None:
+            self._playback_controller.set_muted(muted)
+            self._options.muted = bool(muted)
+        if paused is not None:
+            self._options.paused = bool(paused)
+            self._status["playbackPaused"] = bool(paused)
+            self._apply_pause_state(bool(paused))
+
+        playback_snapshot = self._playback_controller.snapshot()
+        self._status["volumePercent"] = playback_snapshot["volume_percent"]
+        self._status["playbackMuted"] = playback_snapshot["muted"]
+        self._emit(
+            "playback_settings_updated",
+            {
+                "volumePercent": playback_snapshot["volume_percent"],
+                "playbackMuted": playback_snapshot["muted"],
+                "playbackPaused": self._status["playbackPaused"],
+            },
+        )
+        return self.status_snapshot()
+
+    def update_session_settings(
+        self,
+        *,
+        transcription_enabled: bool | None = None,
+        transcription_profile: str | None = None,
+        enable_transition_proposals: bool | None = None,
+        transition_popup_timeout: int | None = None,
+    ) -> dict[str, object]:
+        if self._session is None:
+            raise RuntimeError("Session is not running")
+
+        with self._session_lock:
+            normalized_profile = None
+            if transcription_profile is not None:
+                normalized_profile = normalize_transcription_profile(transcription_profile)
+                self._options.transcription_profile = normalized_profile
+
+            if transcription_enabled is not None:
+                self._options.no_transcription = not transcription_enabled
+                if transcription_enabled:
+                    active_profile = normalized_profile or self._session.settings.transcription_profile
+                    self._session.set_transcriber(FasterWhisperTranscriber(self._session.settings.whisper_model, active_profile))
+                else:
+                    self._session.set_transcriber(NullTranscriber())
+            elif normalized_profile is not None and not self._options.no_transcription:
+                self._session.set_transcriber(FasterWhisperTranscriber(self._session.settings.whisper_model, normalized_profile))
+
+            if enable_transition_proposals is not None:
+                self._options.enable_transition_proposals = enable_transition_proposals
+
+            if transition_popup_timeout is not None:
+                self._options.transition_popup_timeout = transition_popup_timeout
+
+            events = self._session.update_runtime_settings(
+                transcription_profile=normalized_profile,
+                enable_transition_proposals=enable_transition_proposals,
+                transition_popup_timeout=transition_popup_timeout,
+            )
+
+            self._status["transcriptionProfile"] = self._session.settings.transcription_profile
+
+        for event in events:
+            self._handle_event(event)
+
+        pending_payload = self._session.pending_transition_payload()
+        self._status["pendingTransition"] = (
+            {
+                "keyword": pending_payload.get("keyword"),
+                "targetCollection": pending_payload.get("target_collection"),
+                "displayName": pending_payload.get("display_name"),
+                "expiresAtEpoch": pending_payload.get("expires_at_epoch"),
+            }
+            if pending_payload is not None
+            else None
+        )
+        self._emit(
+            "session_settings_updated",
+            {
+                "transcription_enabled": not self._options.no_transcription,
+                "transcription_profile": self._session.settings.transcription_profile,
+                "enable_transition_proposals": self._session.settings.enable_transition_proposals,
+                "transition_popup_timeout": self._session.settings.transition_popup_timeout,
+            },
+        )
         return self.status_snapshot()
 
     def stop(self) -> dict[str, object]:
@@ -125,42 +267,49 @@ class LiveSessionRuntime:
         if self._worker is not None:
             self._worker.join(timeout=5)
             self._worker = None
+        if self._session is not None:
+            self._session.close()
+            self._session = None
         if self._discord_bridge is not None:
             self._discord_bridge.stop()
             self._discord_bridge = None
         if self._player is not None:
             self._player.stop()
             self._player = None
+        self._current_track = None
         self._status.update(
             {
                 "sessionRunning": False,
                 "currentTrackTitle": "No track active",
                 "currentTrackIndex": None,
+                "pendingTransition": None,
             }
         )
         self._emit("session_ended", self.status_snapshot())
         return self.status_snapshot()
 
     def skip_track(self, initial: bool = False) -> dict[str, object]:
-        if self._session is None:
-            raise RuntimeError("Session is not running")
-        track = self._session.next_track_for_collection(self._session.state.active_collection_id)
-        if track is None:
-            raise RuntimeError("No resolved tracks are available for the active collection")
+        with self._session_lock:
+            if self._session is None:
+                raise RuntimeError("Session is not running")
+            track = self._session.next_track_for_collection(self._session.state.active_collection_id)
+            if track is None:
+                raise RuntimeError("No resolved tracks are available for the active collection")
 
-        collection_id = self._session.state.active_collection_id
-        track_index = self._session.state.active_track_index
+            collection_id = self._session.state.active_collection_id
+            track_index = self._session.state.active_track_index
         self._status.update(
             {
                 "activeCollection": collection_id,
                 "currentTrackTitle": track.title,
                 "currentTrackIndex": track_index,
+                "pendingTransition": None,
             }
         )
-        if self._player is not None:
-            self._player.play(track)
-        if self._discord_bridge is not None:
-            self._discord_bridge.play(track)
+        self._current_track = track
+        self._play_track_on_active_output(track)
+        if self._status["playbackPaused"]:
+            self._apply_pause_state(True)
         self._emit(
             "track_started",
             {
@@ -176,6 +325,24 @@ class LiveSessionRuntime:
     def status_snapshot(self) -> dict[str, object]:
         return dict(self._status)
 
+    def approve_transition(self) -> dict[str, object]:
+        with self._session_lock:
+            if self._session is None:
+                raise RuntimeError("Session is not running")
+            events = self._session.approve_pending_transition()
+        for event in events:
+            self._handle_event(event)
+        return self.status_snapshot()
+
+    def dismiss_transition(self) -> dict[str, object]:
+        with self._session_lock:
+            if self._session is None:
+                raise RuntimeError("Session is not running")
+            events = self._session.dismiss_pending_transition()
+        for event in events:
+            self._handle_event(event)
+        return self.status_snapshot()
+
     def _run_loop(self) -> None:
         assert self._audio_source is not None
         assert self._session is not None
@@ -183,7 +350,12 @@ class LiveSessionRuntime:
             for chunk in self._audio_source.stream_chunks(stop_event=self._stop_event):
                 if self._stop_event.is_set():
                     break
-                for event in self._session.process_chunk(chunk):
+                with self._session_lock:
+                    poll_events = self._session.poll()
+                    chunk_events = self._session.process_chunk(chunk)
+                for event in poll_events:
+                    self._handle_event(event)
+                for event in chunk_events:
                     self._handle_event(event)
                 if self._player is not None and self._player.last_error:
                     self._status["lastError"] = self._player.last_error
@@ -210,14 +382,37 @@ class LiveSessionRuntime:
             )
             return
 
+        if event.event_type == "transition_pending":
+            pending_payload = self._session.pending_transition_payload() if self._session is not None else None
+            self._status["pendingTransition"] = {
+                "keyword": event.keyword,
+                "targetCollection": event.collection_id,
+                "displayName": event.collection_name,
+                "expiresAtEpoch": pending_payload.get("expires_at_epoch") if pending_payload is not None else None,
+            }
+            self._emit(
+                "transition_pending",
+                {
+                    "keyword": event.keyword,
+                    "target_collection": event.collection_id,
+                    "display_name": event.collection_name,
+                    "expires_at_epoch": pending_payload.get("expires_at_epoch") if pending_payload is not None else None,
+                },
+            )
+            return
+
+        if event.event_type in {"transition_dismissed", "transition_approved"}:
+            self._status["pendingTransition"] = None
+            self._emit(event.event_type, {"message": event.message})
+            return
+
         if event.event_type == "selected_track" and event.track is not None:
             self._status["activeCollection"] = event.collection_id
             self._status["currentTrackTitle"] = event.track.title
             self._status["currentTrackIndex"] = event.track_index
-            if self._player is not None:
-                self._player.play(event.track)
-            if self._discord_bridge is not None:
-                self._discord_bridge.play(event.track)
+            self._status["pendingTransition"] = None
+            self._current_track = event.track
+            self._play_track_on_active_output(event.track)
             self._emit(
                 "track_started",
                 {
@@ -239,3 +434,74 @@ class LiveSessionRuntime:
     def _emit(self, event_name: str, payload: dict[str, object]) -> None:
         if self._on_event is not None:
             self._on_event(event_name, payload)
+
+    def _apply_pause_state(self, paused: bool) -> None:
+        if self._player is not None:
+            if paused:
+                self._player.pause()
+            else:
+                self._player.resume()
+        if self._discord_bridge is not None:
+            if paused:
+                self._discord_bridge.pause()
+            else:
+                self._discord_bridge.resume()
+
+    def _configure_output_mode(self, output_mode: str, replay_current_track: bool) -> None:
+        next_mode = normalize_output_mode(output_mode)
+
+        if next_mode == "discord":
+            next_bridge = self._build_discord_bridge()
+            if replay_current_track and self._current_track is not None:
+                try:
+                    next_bridge.play(self._current_track)
+                except Exception:
+                    next_bridge.stop()
+                    raise
+
+            if self._player is not None:
+                self._player.stop()
+                self._player = None
+            if self._discord_bridge is not None:
+                self._discord_bridge.stop()
+            self._discord_bridge = next_bridge
+            self._status["outputMode"] = "discord"
+            self._emit("discord_connected", {"voice_channel_id": self._options.discord_voice_channel_id})
+        else:
+            next_player = self._player if self._player is not None else LocalAudioPlayer(playback_controller=self._playback_controller)
+            if replay_current_track and self._current_track is not None:
+                next_player.play(self._current_track)
+
+            if self._discord_bridge is not None:
+                self._discord_bridge.stop()
+                self._discord_bridge = None
+            self._player = next_player
+            self._status["outputMode"] = "local"
+
+        self._options.output_mode = next_mode
+        if self._status["playbackPaused"]:
+            self._apply_pause_state(True)
+
+    def _build_discord_bridge(self) -> DiscordVoiceBridge:
+        if self._options.discord_voice_channel_id is None:
+            raise RuntimeError("Discord output requires a selected voice channel")
+        if not (self._options.discord_token or "").strip():
+            raise RuntimeError("Discord output requires a bot token")
+
+        bridge = DiscordVoiceBridge(
+            token=self._options.discord_token or "",
+            guild_id=self._options.discord_guild_id,
+            voice_channel_id=self._options.discord_voice_channel_id,
+            playback_controller=self._playback_controller,
+        )
+        bridge.start()
+        return bridge
+
+    def _play_track_on_active_output(self, track) -> None:
+        if self._status["outputMode"] == "discord":
+            if self._discord_bridge is not None:
+                self._discord_bridge.play(track)
+            return
+
+        if self._player is not None:
+            self._player.play(track)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import audioop
 import os
 from pathlib import Path
 from shutil import which
@@ -10,6 +11,46 @@ from typing import BinaryIO
 from urllib.parse import urlparse
 
 from .models import ResolvedTrack
+
+
+class PlaybackController:
+    def __init__(self, volume_percent: int = 100, muted: bool = False) -> None:
+        self._lock = threading.Lock()
+        self._volume_percent = self._clamp_volume(volume_percent)
+        self._muted = bool(muted)
+
+    def snapshot(self) -> dict[str, object]:
+        with self._lock:
+            return {
+                "volume_percent": self._volume_percent,
+                "muted": self._muted,
+            }
+
+    def set_volume_percent(self, volume_percent: int) -> None:
+        with self._lock:
+            self._volume_percent = self._clamp_volume(volume_percent)
+
+    def set_muted(self, muted: bool) -> None:
+        with self._lock:
+            self._muted = bool(muted)
+
+    def apply_gain(self, pcm_bytes: bytes) -> bytes:
+        if not pcm_bytes:
+            return pcm_bytes
+
+        with self._lock:
+            volume_percent = self._volume_percent
+            muted = self._muted
+
+        if muted or volume_percent <= 0:
+            return b"\x00" * len(pcm_bytes)
+        if volume_percent >= 100:
+            return pcm_bytes
+        return audioop.mul(pcm_bytes, 2, volume_percent / 100.0)
+
+    @staticmethod
+    def _clamp_volume(volume_percent: int) -> int:
+        return max(0, min(100, int(volume_percent)))
 
 
 def _discover_ffmpeg(ffmpeg_path: str | None) -> str | None:
@@ -242,11 +283,19 @@ class FfmpegStdoutStreamer:
 
 
 class LocalAudioPlayer:
-    def __init__(self, ffmpeg_path: str | None = None, output_device: str | int | None = None) -> None:
+    def __init__(
+        self,
+        ffmpeg_path: str | None = None,
+        output_device: str | int | None = None,
+        playback_controller: PlaybackController | None = None,
+    ) -> None:
         self._streamer = FfmpegStdoutStreamer(ffmpeg_path)
         self._output_device = output_device
+        self._playback_controller = playback_controller or PlaybackController()
         self._worker: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._playback_allowed = threading.Event()
+        self._playback_allowed.set()
         self._lock = threading.Lock()
         self._current_track_title: str | None = None
         self._last_error: str | None = None
@@ -262,10 +311,18 @@ class LocalAudioPlayer:
     def play(self, track: ResolvedTrack) -> None:
         self.stop()
         self._stop_event = threading.Event()
+        self._playback_allowed = threading.Event()
+        self._playback_allowed.set()
         self._last_error = None
         self._current_track_title = track.title
         self._worker = threading.Thread(target=self._play_worker, args=(track, self._stop_event), daemon=True)
         self._worker.start()
+
+    def pause(self) -> None:
+        self._playback_allowed.clear()
+
+    def resume(self) -> None:
+        self._playback_allowed.set()
 
     def stop(self) -> None:
         with self._lock:
@@ -273,6 +330,7 @@ class LocalAudioPlayer:
             stop_event = self._stop_event
             self._worker = None
             self._current_track_title = None
+        self._playback_allowed.set()
         if worker is None:
             return
         stop_event.set()
@@ -300,6 +358,9 @@ class LocalAudioPlayer:
                 stdout_pipe = process.stdout
                 assert stdout_pipe is not None
                 while not stop_event.is_set():
+                    if not self._playback_allowed.wait(timeout=0.1):
+                        continue
+
                     chunk = stdout_pipe.read(4096)
                     if not chunk:
                         break
@@ -309,7 +370,7 @@ class LocalAudioPlayer:
                     if usable <= 0:
                         continue
 
-                    output_stream.write(buffered[:usable])
+                    output_stream.write(self._playback_controller.apply_gain(buffered[:usable]))
                     buffered = buffered[usable:]
 
                 if stop_event.is_set():

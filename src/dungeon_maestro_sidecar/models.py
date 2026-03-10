@@ -35,6 +35,14 @@ class KeywordMatch:
 
 
 @dataclass(slots=True)
+class PendingTransition:
+    collection_id: str
+    collection_name: str
+    keyword: str
+    expires_at_epoch: float
+
+
+@dataclass(slots=True)
 class PipelineSettings:
     sample_rate_hz: int = 16_000
     channels: int = 1
@@ -43,9 +51,11 @@ class PipelineSettings:
     ring_buffer_seconds: int = 10
     transcription_window_seconds: float = 3.0
     transcription_stride_seconds: float = 1.0
+    transcription_profile: str = "fast"
     cooldown_seconds: int = 180
     whisper_model: str = "base"
     default_collection: str = "ambient"
+    enable_transition_proposals: bool = True
     transition_popup_timeout: int = 30
 
 
@@ -57,6 +67,7 @@ class PipelineState:
     last_transcript: str = ""
     speech_chunks_seen: int = 0
     cooldown_until_epoch: float = 0.0
+    pending_transition: PendingTransition | None = None
     resolved_tracks: dict[str, list[ResolvedTrack]] = field(default_factory=dict)
     next_track_index_by_collection: dict[str, int] = field(default_factory=dict)
     session_log: list[dict[str, object]] = field(default_factory=list)

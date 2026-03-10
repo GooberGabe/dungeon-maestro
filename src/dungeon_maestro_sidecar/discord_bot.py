@@ -6,7 +6,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 import threading
 
 from .models import ResolvedTrack
-from .playback import FfmpegStdoutStreamer
+from .playback import FfmpegStdoutStreamer, PlaybackController
 
 try:
     import discord as _discord_base
@@ -22,9 +22,15 @@ else:
 
 
 class DiscordPcmAudioSource(DiscordAudioSourceBase):
-    def __init__(self, track: ResolvedTrack, ffmpeg_path: str | None = None) -> None:
+    def __init__(
+        self,
+        track: ResolvedTrack,
+        ffmpeg_path: str | None = None,
+        playback_controller: PlaybackController | None = None,
+    ) -> None:
         _load_discord_module()
         self._streamer = FfmpegStdoutStreamer(ffmpeg_path)
+        self._playback_controller = playback_controller or PlaybackController()
         self._process, self._ytdlp_process = self._streamer._start_processes(
             track,
             self._streamer._build_ffmpeg_pcm_command(),
@@ -61,11 +67,11 @@ class DiscordPcmAudioSource(DiscordAudioSourceBase):
             frame = self._buffer + (b"\x00" * (frame_size - len(self._buffer)))
             self._buffer = b""
             self._eof = True
-            return frame
+            return self._playback_controller.apply_gain(frame)
 
         frame = self._buffer[:frame_size]
         self._buffer = self._buffer[frame_size:]
-        return frame
+        return self._playback_controller.apply_gain(frame)
 
     def is_opus(self) -> bool:
         return False
@@ -98,6 +104,7 @@ class DiscordVoiceBridge:
         voice_channel_id: int,
         guild_id: int | None = None,
         ffmpeg_path: str | None = None,
+        playback_controller: PlaybackController | None = None,
     ) -> None:
         if not token.strip():
             raise RuntimeError("Discord token is required")
@@ -106,6 +113,7 @@ class DiscordVoiceBridge:
         self._voice_channel_id = voice_channel_id
         self._guild_id = guild_id
         self._ffmpeg_path = ffmpeg_path
+        self._playback_controller = playback_controller or PlaybackController()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client = None
         self._thread: threading.Thread | None = None
@@ -126,6 +134,12 @@ class DiscordVoiceBridge:
 
     def play(self, track: ResolvedTrack, timeout_seconds: float = 15.0) -> None:
         self._run_coroutine(self._play_track(track), timeout_seconds)
+
+    def pause(self, timeout_seconds: float = 10.0) -> None:
+        self._run_coroutine(self._pause_playback(), timeout_seconds)
+
+    def resume(self, timeout_seconds: float = 10.0) -> None:
+        self._run_coroutine(self._resume_playback(), timeout_seconds)
 
     def stop(self, timeout_seconds: float = 10.0) -> None:
         if self._thread is None:
@@ -219,10 +233,24 @@ class DiscordVoiceBridge:
 
     async def _play_track(self, track: ResolvedTrack) -> None:
         voice_client = await self._connect_voice_channel()
-        source = DiscordPcmAudioSource(track, ffmpeg_path=self._ffmpeg_path)
+        source = DiscordPcmAudioSource(
+            track,
+            ffmpeg_path=self._ffmpeg_path,
+            playback_controller=self._playback_controller,
+        )
         if voice_client.is_playing():
             voice_client.stop()
         voice_client.play(source, after=lambda exc: self._after_playback(source, exc))
+
+    async def _pause_playback(self) -> None:
+        voice_client = await self._connect_voice_channel()
+        if voice_client.is_playing():
+            voice_client.pause()
+
+    async def _resume_playback(self) -> None:
+        voice_client = await self._connect_voice_channel()
+        if voice_client.is_paused():
+            voice_client.resume()
 
     def _after_playback(self, source: DiscordPcmAudioSource, exc) -> None:
         try:

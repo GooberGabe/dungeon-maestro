@@ -1,0 +1,209 @@
+.hud-shell {
+  min-height: 100vh;
+  padding: 10px;
+}
+
+.hud-card {
+  min-height: calc(100vh - 20px);
+  border-radius: 24px;
+  border: 1px solid rgba(214, 176, 84, 0.26);
+  background:
+    radial-gradient(circle at top right, rgba(240, 212, 138, 0.14), transparent 28%),
+    linear-gradient(180deg, rgba(10, 27, 44, 0.96), rgba(5, 14, 24, 0.94));
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.42);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid rgba(240, 212, 138, 0.34);
+  -webkit-app-region: drag;
+  position: relative;
+}
+
+.hud-core-layer {
+  display: grid;
+  gap: 12px;
+  transition: opacity 180ms ease, transform 180ms ease, filter 180ms ease;
+}
+
+.hud-card.overlay-active .hud-core-layer {
+  opacity: 0.18;
+  transform: scale(0.98);
+  filter: blur(2px);
+}
+
+.hud-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.hud-drag-row {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 2px;
+}
+
+.hud-brand-block {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-brand-mark {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+
+.hud-track-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.hud-collection-name,
+.hud-track-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-collection-name {
+  font-family: "Cinzel", "Baskerville Old Face", Georgia, serif;
+  color: var(--gold-bright);
+  font-size: 0.98rem;
+}
+
+.hud-track-name {
+  color: var(--text);
+  opacity: 0.92;
+  font-size: 0.84rem;
+}
+
+.hud-swap-button,
+.hud-icon-button {
+  -webkit-app-region: no-drag;
+  border: 1px solid rgba(240, 212, 138, 0.22);
+  background: rgba(8, 19, 31, 0.78);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.hud-swap-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.hud-swap-button img {
+  width: 32px;
+  height: 32px;
+}
+
+.hud-transport-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.hud-icon-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.hud-icon-button {
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+}
+
+.hud-icon-button img {
+  width: 24px;
+  height: 24px;
+}
+
+.hud-icon-button:disabled,
+.hud-swap-button:disabled,
+.dashboard-fab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hud-volume-block {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.hud-volume-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hud-slider {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--gold);
+}
+
+.hud-transition-callout {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.hud-transition-overlay {
+  position: absolute;
+  inset: 8px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(6, 17, 29, 0.88), rgba(5, 14, 24, 0.94));
+  border: 1px solid rgba(214, 176, 84, 0.22);
+  backdrop-filter: blur(10px);
+}
+
+.hud-transition-overlay .hud-transition-callout {
+  width: 100%;
+  max-width: 100%;
+}
+
+.hud-transition-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.hud-transition-keyword {
+  color: var(--gold-bright);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hud-progress-track {
+  margin-top: 0;
+  height: 8px;
+}
+
+.hud-transition-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hud-pill-button {
+  flex: 1;
+  min-height: 40px;
+}

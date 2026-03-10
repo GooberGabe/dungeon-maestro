@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 from .models import Collection, PipelineSettings, TrackSource
+from .transcription import normalize_transcription_profile
 
 
 class ConfigError(RuntimeError):
@@ -14,8 +15,10 @@ class ConfigError(RuntimeError):
 def default_settings() -> PipelineSettings:
     return PipelineSettings(
         cooldown_seconds=180,
+        transcription_profile="fast",
         whisper_model="base",
         default_collection="ambient",
+        enable_transition_proposals=True,
         transition_popup_timeout=30,
     )
 
@@ -112,9 +115,15 @@ def _parse_settings(raw_settings: object) -> PipelineSettings:
         transcription_stride_seconds=float(
             raw_settings.get("transcription_stride_seconds", defaults.transcription_stride_seconds)
         ),
+        transcription_profile=normalize_transcription_profile(
+            str(raw_settings.get("transcription_profile", defaults.transcription_profile))
+        ),
         cooldown_seconds=int(raw_settings.get("cooldown_seconds", defaults.cooldown_seconds)),
         whisper_model=str(raw_settings.get("whisper_model", defaults.whisper_model)),
         default_collection=str(raw_settings.get("default_collection", defaults.default_collection)),
+        enable_transition_proposals=bool(
+            raw_settings.get("enable_transition_proposals", defaults.enable_transition_proposals)
+        ),
         transition_popup_timeout=int(
             raw_settings.get("transition_popup_timeout", defaults.transition_popup_timeout)
         ),

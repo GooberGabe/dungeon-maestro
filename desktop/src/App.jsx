@@ -1,10 +1,35 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import DashboardWindow from './components/DashboardWindow'
+import PinnedHud from './components/PinnedHud'
+import { ICONS, VIEW_MODE } from './constants'
+
 function App() {
   const [bootstrap, setBootstrap] = useState(null)
   const [botTokenDraft, setBotTokenDraft] = useState('')
   const [startingCollection, setStartingCollection] = useState('')
+  const [selectedLibraryCollectionId, setSelectedLibraryCollectionId] = useState('')
+  const [workspaceTab, setWorkspaceTab] = useState('live')
+  const [nowEpoch, setNowEpoch] = useState(() => Date.now() / 1000)
+  const [sessionActionPending, setSessionActionPending] = useState(false)
   const [bootstrapError, setBootstrapError] = useState('')
+  const [outputMode, setOutputMode] = useState('local')
+  const [transcriptionEnabled, setTranscriptionEnabled] = useState(true)
+  const [transcriptionProfile, setTranscriptionProfile] = useState('fast')
+  const [transitionProposalsEnabled, setTransitionProposalsEnabled] = useState(true)
+  const [transitionTimeoutSeconds, setTransitionTimeoutSeconds] = useState(30)
+  const [playbackVolumePercent, setPlaybackVolumePercent] = useState(100)
+  const [playbackMuted, setPlaybackMuted] = useState(false)
+  const [playbackPaused, setPlaybackPaused] = useState(false)
+  const isHudWindow = VIEW_MODE === 'hud'
+
+  useEffect(() => {
+    document.body.classList.toggle('hud-mode', isHudWindow)
+    document.title = isHudWindow ? 'DungeonMaestro HUD' : 'DungeonMaestro Dashboard'
+    return () => {
+      document.body.classList.remove('hud-mode')
+    }
+  }, [isHudWindow])
 
   useEffect(() => {
     if (!window.dungeonMaestro) {
@@ -17,8 +42,16 @@ function App() {
     window.dungeonMaestro.getBootstrapData()
       .then((data) => {
         setBootstrap(data)
+        setOutputMode(data.state.outputMode || data.settings.outputMode || 'local')
         setBotTokenDraft(data.settings.botToken || '')
         setStartingCollection(data.config.settings.default_collection || data.config.collections[0]?.collectionId || '')
+        setSelectedLibraryCollectionId(data.config.settings.default_collection || data.state.activeCollection || data.config.collections[0]?.collectionId || '')
+        setTransitionProposalsEnabled(data.config.settings.enable_transition_proposals !== false)
+        setTranscriptionProfile(data.state.transcriptionProfile || data.config.settings.transcription_profile || 'fast')
+        setTransitionTimeoutSeconds(Number(data.config.settings.transition_popup_timeout || 30))
+        setPlaybackVolumePercent(Number(data.state.volumePercent ?? 100))
+        setPlaybackMuted(Boolean(data.state.playbackMuted))
+        setPlaybackPaused(Boolean(data.state.playbackPaused))
       })
       .catch((error) => {
         setBootstrapError(error?.message || String(error))
@@ -27,6 +60,11 @@ function App() {
     try {
       unsubscribe = window.dungeonMaestro.onStateChanged((data) => {
         setBootstrap(data)
+        setOutputMode(data.state.outputMode || data.settings.outputMode || 'local')
+        setTranscriptionProfile(data.state.transcriptionProfile || data.config.settings.transcription_profile || 'fast')
+        setPlaybackVolumePercent(Number(data.state.volumePercent ?? 100))
+        setPlaybackMuted(Boolean(data.state.playbackMuted))
+        setPlaybackPaused(Boolean(data.state.playbackPaused))
       })
     } catch (error) {
       setBootstrapError(error?.message || String(error))
@@ -42,11 +80,47 @@ function App() {
   const collections = bootstrap?.config.collections || []
   const state = bootstrap?.state
   const settings = bootstrap?.settings
+  const discordTargets = state?.discordTargets || []
+
+  const selectedGuild = useMemo(
+    () => discordTargets.find((guild) => guild.id === settings?.discordGuildId) || null,
+    [discordTargets, settings?.discordGuildId]
+  )
+
+  const selectedVoiceChannels = selectedGuild?.voice_channels || []
 
   const activeCollection = useMemo(
     () => collections.find((collection) => collection.collectionId === state?.activeCollection),
     [collections, state?.activeCollection]
   )
+
+  const selectedLibraryCollection = useMemo(
+    () => collections.find((collection) => collection.collectionId === selectedLibraryCollectionId) || null,
+    [collections, selectedLibraryCollectionId]
+  )
+
+  useEffect(() => {
+    if (!collections.length) {
+      return
+    }
+
+    const hasSelection = collections.some((collection) => collection.collectionId === selectedLibraryCollectionId)
+    if (!hasSelection) {
+      setSelectedLibraryCollectionId(state?.activeCollection || startingCollection || collections[0].collectionId)
+    }
+  }, [collections, selectedLibraryCollectionId, startingCollection, state?.activeCollection])
+
+  useEffect(() => {
+    if (!state?.pendingTransition?.expiresAtEpoch) {
+      return undefined
+    }
+
+    const intervalId = window.setInterval(() => {
+      setNowEpoch(Date.now() / 1000)
+    }, 250)
+
+    return () => window.clearInterval(intervalId)
+  }, [state?.pendingTransition?.expiresAtEpoch])
 
   if (bootstrapError) {
     return (
@@ -69,14 +143,67 @@ function App() {
     setBootstrap(updated)
   }
 
-  const startSession = async () => {
-    const updated = await window.dungeonMaestro.startSession({ startingCollection })
+  const refreshDiscordTargets = async () => {
+    const updated = await window.dungeonMaestro.refreshDiscordTargets()
     setBootstrap(updated)
   }
 
-  const endSession = async () => {
-    const updated = await window.dungeonMaestro.endSession()
+  const chooseDiscordGuild = async (guildId) => {
+    const updated = await window.dungeonMaestro.setDiscordGuild(guildId)
     setBootstrap(updated)
+  }
+
+  const chooseDiscordVoiceChannel = async (channelId) => {
+    const updated = await window.dungeonMaestro.setDiscordVoiceChannel(channelId)
+    setBootstrap(updated)
+  }
+
+  const togglePinnedHud = async () => {
+    await window.dungeonMaestro.togglePinnedHud()
+  }
+
+  const applyLiveSessionSettings = async (nextSettings) => {
+    if (!state.sessionRunning || state.startupInProgress) {
+      return
+    }
+    const updated = await window.dungeonMaestro.updateSessionSettings(nextSettings)
+    setBootstrap(updated)
+  }
+
+  const startSession = async () => {
+    if (state.sessionRunning || state.startupInProgress || sessionActionPending) {
+      return
+    }
+    setSessionActionPending(true)
+    try {
+      const updated = await window.dungeonMaestro.startSession({
+        startingCollection: startingCollection || null,
+        outputMode,
+        transcriptionEnabled,
+        transcriptionProfile,
+        transitionProposalsEnabled: transcriptionEnabled && transitionProposalsEnabled,
+        transitionTimeoutSeconds,
+        volumePercent: playbackVolumePercent,
+        muted: playbackMuted,
+        paused: false,
+      })
+      setBootstrap(updated)
+    } finally {
+      setSessionActionPending(false)
+    }
+  }
+
+  const endSession = async () => {
+    if ((!state.sessionRunning && !state.startupInProgress) || sessionActionPending) {
+      return
+    }
+    setSessionActionPending(true)
+    try {
+      const updated = await window.dungeonMaestro.endSession()
+      setBootstrap(updated)
+    } finally {
+      setSessionActionPending(false)
+    }
   }
 
   const skipTrack = async () => {
@@ -94,172 +221,186 @@ function App() {
     setBootstrap(updated)
   }
 
+  const applyPlaybackSettings = async (nextSettings) => {
+    if (!state.sessionRunning || state.startupInProgress) {
+      return
+    }
+    const updated = await window.dungeonMaestro.updatePlaybackSettings(nextSettings)
+    setBootstrap(updated)
+  }
+
+  const libraryFocusCollection = selectedLibraryCollection || activeCollection || collections[0] || null
+  const selectedDiscordVoiceChannel = selectedVoiceChannels.find((channel) => channel.id === settings.discordVoiceChannelId) || null
+  const lastTranscript = state.lastTranscript || 'No transcript captured yet.'
+  const lastError = state.lastError || 'No active errors.'
+  const activeOutputMode = state.outputMode || outputMode || settings.outputMode || 'local'
+  const isSessionStarting = state.startupInProgress
+  const isSessionBusy = sessionActionPending || state.startupInProgress
+  const isSessionActive = state.sessionRunning || state.startupInProgress
+  const playbackStatusLabel = playbackMuted ? 'Muted' : `${playbackVolumePercent}%`
+  const playbackRouteLabel = activeOutputMode === 'discord'
+    ? (selectedGuild && selectedDiscordVoiceChannel ? `${selectedGuild.name} / ${selectedDiscordVoiceChannel.name}` : 'Discord output')
+    : 'Local speakers'
+  const transportStateLabel = playbackPaused ? 'Paused' : playbackMuted ? 'Muted' : playbackRouteLabel
+  const sessionStatusLabel = isSessionStarting ? 'Preparing' : state.sessionRunning ? 'Connected' : 'Idle'
+  const sessionStatusClass = isSessionStarting ? 'preparing' : state.sessionRunning ? 'online' : 'idle'
+  const pendingExpiresAtEpoch = state.pendingTransition?.expiresAtEpoch ?? null
+  const transitionRemainingSeconds = pendingExpiresAtEpoch ? Math.max(0, pendingExpiresAtEpoch - nowEpoch) : 0
+  const transitionProgress = pendingExpiresAtEpoch
+    ? Math.max(0, Math.min(1, transitionRemainingSeconds / Math.max(transitionTimeoutSeconds, 1)))
+    : 0
+
+  const handleTranscriptionToggle = (event) => {
+    const enabled = event.target.checked
+    setTranscriptionEnabled(enabled)
+    if (!enabled) {
+      setTransitionProposalsEnabled(false)
+    }
+    void applyLiveSessionSettings({
+      transcriptionEnabled: enabled,
+      transcriptionProfile,
+      transitionProposalsEnabled: enabled ? transitionProposalsEnabled : false,
+      transitionTimeoutSeconds,
+    })
+  }
+
+  const handleTranscriptionProfileChange = (event) => {
+    const nextProfile = event.target.value
+    setTranscriptionProfile(nextProfile)
+    void applyLiveSessionSettings({
+      transcriptionProfile: nextProfile,
+    })
+  }
+
+  const handleOutputModeChange = async (event) => {
+    const nextMode = event.target.value === 'discord' ? 'discord' : 'local'
+    setOutputMode(nextMode)
+    const updated = await window.dungeonMaestro.setOutputMode(nextMode)
+    setBootstrap(updated)
+  }
+
+  const handleTransitionProposalToggle = (event) => {
+    const enabled = event.target.checked
+    setTransitionProposalsEnabled(enabled)
+    void applyLiveSessionSettings({
+      transitionProposalsEnabled: enabled,
+      transitionTimeoutSeconds,
+    })
+  }
+
+  const handleTransitionTimeoutChange = (event) => {
+    const rawValue = Number.parseInt(event.target.value, 10)
+    if (Number.isFinite(rawValue)) {
+      const nextValue = Math.min(300, Math.max(5, rawValue))
+      setTransitionTimeoutSeconds(nextValue)
+      void applyLiveSessionSettings({
+        transitionTimeoutSeconds: nextValue,
+      })
+    }
+  }
+
+  const handlePlaybackVolumeChange = (event) => {
+    const nextValue = Math.min(100, Math.max(0, Number.parseInt(event.target.value, 10) || 0))
+    setPlaybackVolumePercent(nextValue)
+    void applyPlaybackSettings({ volumePercent: nextValue })
+  }
+
+  const togglePlaybackMute = async () => {
+    const nextMuted = !playbackMuted
+    setPlaybackMuted(nextMuted)
+    const updated = await window.dungeonMaestro.updatePlaybackSettings({ muted: nextMuted })
+    setBootstrap(updated)
+  }
+
+  const togglePlaybackPause = async () => {
+    const nextPaused = !playbackPaused
+    setPlaybackPaused(nextPaused)
+    const updated = await window.dungeonMaestro.updatePlaybackSettings({ paused: nextPaused })
+    setBootstrap(updated)
+  }
+
+  if (isHudWindow) {
+    return (
+      <PinnedHud
+        activeCollection={activeCollection}
+        approveTransition={approveTransition}
+        dismissTransition={dismissTransition}
+        icons={ICONS}
+        isSessionActive={isSessionActive}
+        isSessionStarting={isSessionStarting}
+        outputMode={activeOutputMode}
+        playbackMuted={playbackMuted}
+        playbackPaused={playbackPaused}
+        playbackVolumePercent={playbackVolumePercent}
+        skipTrack={skipTrack}
+        state={state}
+        togglePinnedHud={togglePinnedHud}
+        togglePlaybackMute={togglePlaybackMute}
+        togglePlaybackPause={togglePlaybackPause}
+        transitionProgress={transitionProgress}
+        onPlaybackVolumeChange={handlePlaybackVolumeChange}
+      />
+    )
+  }
+
   return (
-    <div className="app-shell">
-      <aside className="control-rail">
-        <div className="brand-card panel">
-          <p className="eyebrow">DungeonMaestro</p>
-          <h1>Blue halls, gilded torchlight, one command center.</h1>
-          <p className="supporting-text">
-            Dashboard-first Phase 4 shell. The floating pin window comes later, but every live-session control already lives here.
-          </p>
-        </div>
-
-        <section className="panel discord-panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Discord</p>
-              <h2>Bot Connection</h2>
-            </div>
-            <span className={`status-chip ${state.connectedBot ? 'online' : 'idle'}`}>
-              {state.connectedBot ? 'Token Saved' : 'Awaiting Token'}
-            </span>
-          </div>
-
-          <label className="field-label" htmlFor="bot-token">Bot token</label>
-          <textarea
-            id="bot-token"
-            className="token-field"
-            rows={4}
-            value={botTokenDraft}
-            onChange={(event) => setBotTokenDraft(event.target.value)}
-            placeholder="Paste the bot token once. The dashboard will own the rest of the Discord wiring."
-          />
-          <div className="button-row">
-            <button className="primary-button" onClick={saveBotToken}>Save Token</button>
-          </div>
-          <p className="status-copy">{state.discordStatus}</p>
-          <p className="status-copy subdued">{state.sidecarStatus}</p>
-        </section>
-
-        <section className="panel session-panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Session</p>
-              <h2>Launch Controls</h2>
-            </div>
-            <span className={`status-chip ${state.sessionRunning ? 'online' : 'idle'}`}>
-              {state.sessionRunning ? 'Live' : 'Idle'}
-            </span>
-          </div>
-
-          <label className="field-label" htmlFor="starting-collection">Starting collection</label>
-          <select
-            id="starting-collection"
-            className="select-field"
-            value={startingCollection}
-            onChange={(event) => setStartingCollection(event.target.value)}
-          >
-            {collections.map((collection) => (
-              <option key={collection.collectionId} value={collection.collectionId}>
-                {collection.name}
-              </option>
-            ))}
-          </select>
-
-          <div className="session-grid">
-            <div>
-              <span className="metric-label">Config</span>
-              <strong>{settings.configPath}</strong>
-            </div>
-            <div>
-              <span className="metric-label">Default collection</span>
-              <strong>{bootstrap.config.settings.default_collection}</strong>
-            </div>
-            <div>
-              <span className="metric-label">Last transcript</span>
-              <strong>{state.lastTranscript || 'No transcript yet'}</strong>
-            </div>
-            <div>
-              <span className="metric-label">Last error</span>
-              <strong>{state.lastError || 'No errors'}</strong>
-            </div>
-          </div>
-
-          <div className="button-row">
-            <button className="primary-button" onClick={startSession}>Start Session</button>
-            <button className="ghost-button" onClick={endSession}>End Session</button>
-          </div>
-        </section>
-
-        <section className="panel collection-panel">
-          <div className="panel-header compact">
-            <div>
-              <p className="eyebrow">Collections</p>
-              <h2>Current Library</h2>
-            </div>
-          </div>
-          <div className="collection-list">
-            {collections.map((collection) => (
-              <article key={collection.collectionId} className={`collection-card ${state.activeCollection === collection.collectionId ? 'active' : ''}`}>
-                <div className="collection-title-row">
-                  <h3>{collection.name}</h3>
-                  <span>{collection.trackCount} tracks</span>
-                </div>
-                <p className="keyword-line">{collection.keywords.join(' • ')}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-      </aside>
-
-      <main className="stage-column">
-        <section className="panel stage-hero">
-          <div>
-            <p className="eyebrow">Dashboard HUD</p>
-            <h2>All live controls stay here until the pin window ships.</h2>
-          </div>
-          <p className="supporting-text">
-            The compact floating window can come later. For now, skip, approve, dismiss, and track context are all available directly inside the dashboard.
-          </p>
-        </section>
-
-        <section className="hud-board">
-          <div className="hud-compact panel">
-            <div className="hud-topline">
-              <div>
-                <p className="hud-label">Now playing</p>
-                <h3>{activeCollection?.name || 'No active collection'}</h3>
-              </div>
-              <span className="track-pill">
-                {state.currentTrackIndex === null ? 'Track --' : `Track ${state.currentTrackIndex + 1}`}
-              </span>
-            </div>
-
-            <p className="current-track">{state.currentTrackTitle}</p>
-
-            <div className="button-row hud-actions">
-              <button className="primary-button" onClick={skipTrack}>Skip Track</button>
-              <button className="ghost-button" onClick={startSession}>Launch Dashboard Session</button>
-            </div>
-          </div>
-
-          <div className={`hud-expanded panel ${state.pendingTransition ? 'visible' : 'muted'}`}>
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">Transition gate</p>
-                <h2>{state.pendingTransition ? 'Pending switch' : 'No pending transition'}</h2>
-              </div>
-            </div>
-
-            {state.pendingTransition ? (
-              <>
-                <p className="transition-copy">
-                  <span className="transition-keyword">“{state.pendingTransition.keyword}”</span> detected. Move to{' '}
-                  <strong>{state.pendingTransition.displayName}</strong>?
-                </p>
-                <div className="button-row hud-actions">
-                  <button className="primary-button" onClick={approveTransition}>Switch Collection</button>
-                  <button className="ghost-button" onClick={dismissTransition}>Dismiss</button>
-                </div>
-              </>
-            ) : (
-              <p className="supporting-text">Transition prompts will surface here with the same controls planned for the future pinned HUD.</p>
-            )}
-          </div>
-        </section>
-      </main>
-    </div>
+    <DashboardWindow
+      activeCollection={activeCollection}
+      approveTransition={approveTransition}
+      bootstrap={bootstrap}
+      botTokenDraft={botTokenDraft}
+      chooseDiscordGuild={chooseDiscordGuild}
+      chooseDiscordVoiceChannel={chooseDiscordVoiceChannel}
+      collections={collections}
+      dismissTransition={dismissTransition}
+      discordTargets={discordTargets}
+      endSession={endSession}
+      handleOutputModeChange={handleOutputModeChange}
+      handlePlaybackVolumeChange={handlePlaybackVolumeChange}
+      handleTransitionProposalToggle={handleTransitionProposalToggle}
+      handleTransitionTimeoutChange={handleTransitionTimeoutChange}
+      handleTranscriptionToggle={handleTranscriptionToggle}
+      isSessionActive={isSessionActive}
+      isSessionBusy={isSessionBusy}
+      isSessionStarting={isSessionStarting}
+      lastError={lastError}
+      lastTranscript={lastTranscript}
+      libraryFocusCollection={libraryFocusCollection}
+      playbackMuted={playbackMuted}
+      playbackPaused={playbackPaused}
+      playbackRouteLabel={playbackRouteLabel}
+      playbackStatusLabel={playbackStatusLabel}
+      playbackVolumePercent={playbackVolumePercent}
+      outputMode={activeOutputMode}
+      refreshDiscordTargets={refreshDiscordTargets}
+      saveBotToken={saveBotToken}
+      selectedDiscordVoiceChannel={selectedDiscordVoiceChannel}
+      selectedGuild={selectedGuild}
+      selectedLibraryCollectionId={selectedLibraryCollectionId}
+      selectedVoiceChannels={selectedVoiceChannels}
+      sessionStatusClass={sessionStatusClass}
+      sessionStatusLabel={sessionStatusLabel}
+      setBotTokenDraft={setBotTokenDraft}
+      setSelectedLibraryCollectionId={setSelectedLibraryCollectionId}
+      setStartingCollection={setStartingCollection}
+      setWorkspaceTab={setWorkspaceTab}
+      settings={settings}
+      skipTrack={skipTrack}
+      startSession={startSession}
+      startingCollection={startingCollection}
+      state={state}
+      togglePinnedHud={togglePinnedHud}
+      togglePlaybackMute={togglePlaybackMute}
+      togglePlaybackPause={togglePlaybackPause}
+      transcriptionEnabled={transcriptionEnabled}
+      transcriptionProfile={transcriptionProfile}
+      handleTranscriptionProfileChange={handleTranscriptionProfileChange}
+      transitionProgress={transitionProgress}
+      transitionProposalsEnabled={transitionProposalsEnabled}
+      transitionTimeoutSeconds={transitionTimeoutSeconds}
+      transportStateLabel={transportStateLabel}
+      workspaceTab={workspaceTab}
+    />
   )
 }
 

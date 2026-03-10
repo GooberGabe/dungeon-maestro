@@ -12,7 +12,7 @@ from .playback import FfmpegStdoutStreamer, LocalAudioPlayer
 from .persistence import SessionStateStore
 from .session import PipelineSession
 from .tracks import YtDlpTrackResolver
-from .transcription import FasterWhisperTranscriber, NullTranscriber
+from .transcription import FasterWhisperTranscriber, NullTranscriber, normalize_transcription_profile
 from .vad import SileroVadGate
 
 
@@ -50,6 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-transcription",
         action="store_true",
         help="Disable faster-whisper and only validate capture, VAD, and resolution.",
+    )
+    parser.add_argument(
+        "--transcription-profile",
+        choices=("fast", "balanced", "accurate"),
+        help="Optional transcription profile override. Defaults to the YAML setting.",
     )
     parser.add_argument(
         "--stream-active-track",
@@ -147,6 +152,8 @@ def main() -> int:
             settings.input_device = int(input_device)
         else:
             settings.input_device = input_device
+    if args.transcription_profile is not None:
+        settings.transcription_profile = normalize_transcription_profile(args.transcription_profile)
 
     session_state_path = Path(args.session_state) if args.session_state else default_session_state_path(config_path)
     state_store = SessionStateStore(session_state_path)
@@ -175,7 +182,7 @@ def main() -> int:
         transcriber = NullTranscriber()
     else:
         try:
-            transcriber = FasterWhisperTranscriber(settings.whisper_model)
+            transcriber = FasterWhisperTranscriber(settings.whisper_model, settings.transcription_profile)
         except RuntimeError as exc:
             print(f"[startup] {exc}", file=log_stream)
             print("[startup] Re-run with --no-transcription to validate the rest of the pipeline.", file=log_stream)

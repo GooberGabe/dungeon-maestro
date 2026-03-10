@@ -2,12 +2,14 @@ settings:
   cooldown_seconds: 180
   whisper_model: base
   default_collection: ambient
+  enable_transition_proposals: true
   transition_popup_timeout: 30
   # Optional: set this to a sounddevice input device index or exact device name.
   input_device: 1
   # Optional for faster live testing while tuning the mic/VAD path.
   transcription_window_seconds: 1.0
   transcription_stride_seconds: 0.5
+  transcription_profile: fast
 
 collections:
   ambient:
