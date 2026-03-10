@@ -1,0 +1,6 @@
+numpy<3,>=1.26
+sounddevice<1,>=0.4.6
+yt-dlp<2026.0.0,>=2025.1.0
+
+[ml]
+faster-whisper<2,>=1.0.0

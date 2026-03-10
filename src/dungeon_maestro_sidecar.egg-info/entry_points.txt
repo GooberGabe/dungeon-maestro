@@ -1,0 +1,2 @@
+[console_scripts]
+dungeon-maestro-sidecar = dungeon_maestro_sidecar.cli:main
