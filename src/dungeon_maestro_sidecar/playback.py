@@ -45,41 +45,7 @@ class FfmpegStdoutStreamer:
             raise RuntimeError("ffmpeg is required for stdout audio streaming but was not found on PATH.")
 
     def stream(self, track: ResolvedTrack, output: BinaryIO, max_bytes: int | None = None) -> int:
-        ytdlp_command = self._build_ytdlp_command(track)
-        ffmpeg_command = [
-            self._ffmpeg_path,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            "pipe:0",
-            "-vn",
-            "-f",
-            "s16le",
-            "-acodec",
-            "pcm_s16le",
-            "-ac",
-            "2",
-            "-ar",
-            "48000",
-            "pipe:1",
-        ]
-
-        ytdlp_process = subprocess.Popen(
-            ytdlp_command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-        process = subprocess.Popen(
-            ffmpeg_command,
-            stdin=ytdlp_process.stdout,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-        if ytdlp_process.stdout is not None:
-            ytdlp_process.stdout.close()
+        process, ytdlp_process = self._start_processes(track, self._build_ffmpeg_pcm_command())
 
         total_written = 0
         hit_limit = False
@@ -119,6 +85,41 @@ class FfmpegStdoutStreamer:
 
         return total_written
 
+    def write_wav(self, track: ResolvedTrack, output_path: str | Path, max_seconds: float | None = None) -> None:
+        expected_truncation = max_seconds is not None and max_seconds > 0
+        ffmpeg_command = [
+            self._ffmpeg_path,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            "pipe:0",
+            "-vn",
+        ]
+        if max_seconds is not None and max_seconds > 0:
+            ffmpeg_command.extend(["-t", str(max_seconds)])
+        ffmpeg_command.extend([
+            "-acodec",
+            "pcm_s16le",
+            "-ac",
+            "2",
+            "-ar",
+            "48000",
+            "-y",
+            str(output_path),
+        ])
+
+        process, ytdlp_process = self._start_processes(track, ffmpeg_command)
+        stderr_output, ytdlp_stderr = self._finalize_processes(process, ytdlp_process, hit_limit=False)
+
+        if process.returncode not in (0, None):
+            message = stderr_output.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(message or f"ffmpeg exited with code {process.returncode}")
+
+        if ytdlp_process.returncode not in (0, None) and not expected_truncation:
+            message = ytdlp_stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(message or f"yt-dlp exited with code {ytdlp_process.returncode}")
+
     def _build_ytdlp_command(self, track: ResolvedTrack) -> list[str]:
         query = track.webpage_url or track.source
         is_search_term = not query.startswith("http")
@@ -153,6 +154,50 @@ class FfmpegStdoutStreamer:
             "-",
             query,
         ]
+
+    def _build_ffmpeg_pcm_command(self) -> list[str]:
+        return [
+            self._ffmpeg_path,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            "pipe:0",
+            "-vn",
+            "-f",
+            "s16le",
+            "-acodec",
+            "pcm_s16le",
+            "-ac",
+            "2",
+            "-ar",
+            "48000",
+            "pipe:1",
+        ]
+
+    def _start_processes(
+        self,
+        track: ResolvedTrack,
+        ffmpeg_command: list[str],
+    ) -> tuple[subprocess.Popen, subprocess.Popen]:
+        ytdlp_command = self._build_ytdlp_command(track)
+        ytdlp_process = subprocess.Popen(
+            ytdlp_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        process = subprocess.Popen(
+            ffmpeg_command,
+            stdin=ytdlp_process.stdout,
+            stdout=subprocess.PIPE if ffmpeg_command[-1] == "pipe:1" else None,
+            stderr=subprocess.PIPE,
+        )
+
+        if ytdlp_process.stdout is not None:
+            ytdlp_process.stdout.close()
+
+        return process, ytdlp_process
 
     def _finalize_processes(
         self,

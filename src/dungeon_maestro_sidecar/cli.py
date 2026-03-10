@@ -17,6 +17,15 @@ from .vad import SileroVadGate
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="DungeonMaestro Phase 2 sidecar CLI")
     parser.add_argument(
+        "--list-audio-devices",
+        action="store_true",
+        help="List available input devices and exit.",
+    )
+    parser.add_argument(
+        "--input-device",
+        help="Optional microphone device id or name override. Defaults to the OS default input device.",
+    )
+    parser.add_argument(
         "--config",
         default="tabletop-dj.yaml",
         help="Path to the YAML config file.",
@@ -51,6 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=5.0,
         help="When streaming to stdout, stop after this many seconds of PCM audio. Use 0 for no limit.",
     )
+    parser.add_argument(
+        "--write-active-track-wav",
+        help="Write the active collection's next track to a WAV file instead of piping raw PCM to stdout.",
+    )
     return parser
 
 
@@ -71,6 +84,28 @@ def default_session_state_path(config_path: Path) -> Path:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.list_audio_devices:
+        try:
+            default_input, devices = MicrophoneAudioSource.list_input_devices()
+        except RuntimeError as exc:
+            print(f"[audio] {exc}")
+            return 1
+
+        if not devices:
+            print("[audio] no input devices found")
+            return 1
+
+        for device in devices:
+            marker = "*" if device["is_default"] else " "
+            sample_rate = device["default_samplerate"]
+            sample_rate_text = f", default {sample_rate:.0f} Hz" if isinstance(sample_rate, (int, float)) else ""
+            print(
+                f"[{marker}] {device['index']}: {device['name']} ({device['max_input_channels']} in{sample_rate_text})"
+            )
+        if default_input is not None:
+            print(f"[audio] default input device index: {default_input}")
+        return 0
+
     log_stream = sys.stderr if args.stream_active_track else sys.stdout
     config_path = Path(args.config)
 
@@ -79,6 +114,13 @@ def main() -> int:
     except ConfigError as exc:
         print(f"[startup] {exc}", file=log_stream)
         return 1
+
+    if args.input_device is not None:
+        input_device = args.input_device
+        if input_device.isdigit():
+            settings.input_device = int(input_device)
+        else:
+            settings.input_device = input_device
 
     session_state_path = Path(args.session_state) if args.session_state else default_session_state_path(config_path)
     state_store = SessionStateStore(session_state_path)
@@ -133,7 +175,7 @@ def main() -> int:
     for event in session.warm_resolve_tracks():
         print(f"[{event.event_type}] {event.message}", file=log_stream)
 
-    if args.stream_active_track:
+    if args.stream_active_track or args.write_active_track_wav:
         track = session.next_track_for_collection(session.state.active_collection_id)
         if track is None:
             print("[error] no resolved tracks available for the active collection", file=sys.stderr)
@@ -141,6 +183,14 @@ def main() -> int:
 
         try:
             streamer = FfmpegStdoutStreamer()
+            if args.write_active_track_wav:
+                streamer.write_wav(track, args.write_active_track_wav, max_seconds=args.stream_seconds)
+                print(
+                    f"[shutdown] wrote WAV preview to {args.write_active_track_wav} from {track.title!r}",
+                    file=sys.stderr,
+                )
+                return 0
+
             written = streamer.stream(
                 track,
                 sys.stdout.buffer,
@@ -159,7 +209,14 @@ def main() -> int:
     if args.resolve_only:
         return 0
 
+    try:
+        device_description = MicrophoneAudioSource.describe_input_device(settings.input_device)
+    except RuntimeError as exc:
+        print(f"[startup] {exc}", file=log_stream)
+        return 1
+
     print("[startup] opening microphone stream", file=log_stream)
+    print(f"[startup] using input device: {device_description}", file=log_stream)
     print("[startup] press Ctrl+C to stop", file=log_stream)
     audio_source = MicrophoneAudioSource(settings)
 

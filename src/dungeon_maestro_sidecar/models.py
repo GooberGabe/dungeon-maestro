@@ -38,6 +38,7 @@ class KeywordMatch:
 class PipelineSettings:
     sample_rate_hz: int = 16_000
     channels: int = 1
+    input_device: str | int | None = None
     chunk_size: int = 512
     ring_buffer_seconds: int = 10
     transcription_window_seconds: float = 3.0

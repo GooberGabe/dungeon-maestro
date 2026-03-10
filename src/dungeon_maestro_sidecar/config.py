@@ -96,9 +96,14 @@ def _parse_settings(raw_settings: object) -> PipelineSettings:
         raise ConfigError("settings must be a mapping")
 
     defaults = default_settings()
+    input_device = raw_settings.get("input_device", defaults.input_device)
+    if input_device is not None and not isinstance(input_device, (str, int)):
+        raise ConfigError("settings.input_device must be a string, integer device id, or null")
+
     settings = PipelineSettings(
         sample_rate_hz=int(raw_settings.get("sample_rate_hz", defaults.sample_rate_hz)),
         channels=int(raw_settings.get("channels", defaults.channels)),
+        input_device=input_device,
         chunk_size=int(raw_settings.get("chunk_size", defaults.chunk_size)),
         ring_buffer_seconds=int(raw_settings.get("ring_buffer_seconds", defaults.ring_buffer_seconds)),
         transcription_window_seconds=float(

@@ -26,22 +26,39 @@ class EnergyVadGate(SpeechGate):
 
 
 class SileroVadGate(SpeechGate):
-    def __init__(self, sample_rate_hz: int) -> None:
+    def __init__(self, sample_rate_hz: int, threshold: float = 0.5) -> None:
         self._sample_rate_hz = sample_rate_hz
+        self._threshold = threshold
         self._fallback = EnergyVadGate()
+        self._torch = None
         self._model = None
-        self._utils = None
         self._load_error: Exception | None = None
         self._try_load()
 
     def is_speech(self, chunk: np.ndarray) -> bool:
-        if self._model is None or self._utils is None:
+        if self._model is None or self._torch is None:
             return self._fallback.is_speech(chunk)
 
-        get_speech_timestamps = self._utils[0]
         audio = np.asarray(chunk, dtype=np.float32)
-        timestamps = get_speech_timestamps(audio, self._model, sampling_rate=self._sample_rate_hz)
-        return bool(timestamps)
+        if audio.size == 0:
+            return False
+
+        # Silero's streaming path expects fixed-size frames: 512 samples at 16 kHz.
+        expected_size = 512 if self._sample_rate_hz == 16_000 else 256
+        if audio.size < expected_size:
+            audio = np.pad(audio, (0, expected_size - audio.size))
+        elif audio.size > expected_size:
+            audio = audio[-expected_size:]
+
+        try:
+            with self._torch.no_grad():
+                tensor = self._torch.from_numpy(audio)
+                probability = float(self._model(tensor, self._sample_rate_hz).item())
+        except Exception as exc:
+            self._load_error = exc
+            return self._fallback.is_speech(chunk)
+
+        return probability >= self._threshold
 
     @property
     def using_fallback(self) -> bool:
@@ -58,6 +75,8 @@ class SileroVadGate(SpeechGate):
             self._load_error = exc
             return
 
+        self._torch = torch
+
         try:
             loaded = torch.hub.load(
                 repo_or_dir="snakers4/silero-vad",
@@ -69,4 +88,4 @@ class SileroVadGate(SpeechGate):
             self._load_error = exc
             return
 
-        self._model, self._utils = loaded
+        self._model, _utils = loaded

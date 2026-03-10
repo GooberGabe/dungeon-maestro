@@ -27,7 +27,9 @@ class FasterWhisperTranscriber(Transcriber):
 
     def transcribe(self, audio_chunk: np.ndarray) -> str:
         normalized = np.asarray(audio_chunk, dtype=np.float32)
-        segments, _ = self._model.transcribe(normalized, vad_filter=True)
+        # External VAD already gates chunks before transcription; a second VAD pass
+        # on short rolling windows can suppress valid speech entirely.
+        segments, _ = self._model.transcribe(normalized, vad_filter=False)
         return " ".join(segment.text for segment in segments).lower().strip()
 
 
