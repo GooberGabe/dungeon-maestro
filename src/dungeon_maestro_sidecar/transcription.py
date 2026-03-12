@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from importlib import import_module
-
 import numpy as np
+
+from . import load_optional_module
 
 
 TRANSCRIPTION_PROFILES: dict[str, dict[str, object]] = {
@@ -33,10 +33,6 @@ TRANSCRIPTION_PROFILES: dict[str, dict[str, object]] = {
 }
 
 
-def _load_optional_module(module_name: str):
-    return import_module(module_name)
-
-
 class Transcriber:
     def transcribe(self, audio_chunk: np.ndarray) -> str:
         raise NotImplementedError
@@ -57,7 +53,7 @@ def normalize_transcription_profile(profile_name: str | None) -> str:
 class FasterWhisperTranscriber(Transcriber):
     def __init__(self, model_name: str, profile_name: str = "fast") -> None:
         try:
-            whisper_module = _load_optional_module("faster_whisper")
+            whisper_module = load_optional_module("faster_whisper")
         except ImportError as exc:
             raise RuntimeError(
                 "faster-whisper is required for transcription. Install optional ML dependencies first."

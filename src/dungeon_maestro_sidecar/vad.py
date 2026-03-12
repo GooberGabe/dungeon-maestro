@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-from importlib import import_module
-
 import numpy as np
 
-
-def _load_optional_module(module_name: str):
-    return import_module(module_name)
+from . import load_optional_module
 
 
 class SpeechGate:
@@ -70,7 +66,7 @@ class SileroVadGate(SpeechGate):
 
     def _try_load(self) -> None:
         try:
-            torch = _load_optional_module("torch")
+            torch = load_optional_module("torch")
         except ImportError as exc:
             self._load_error = exc
             return

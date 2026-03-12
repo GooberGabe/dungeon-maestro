@@ -2,6 +2,9 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('dungeonMaestro', {
   getBootstrapData: () => ipcRenderer.invoke('dashboard:get-bootstrap-data'),
+  previewTrackSource: (source) => ipcRenderer.invoke('dashboard:preview-track-source', source),
+  saveCollectionEdits: (collectionId, payload) => ipcRenderer.invoke('dashboard:save-collection-edits', collectionId, payload),
+  deleteCollection: (collectionId) => ipcRenderer.invoke('dashboard:delete-collection', collectionId),
   saveBotToken: (token) => ipcRenderer.invoke('dashboard:save-bot-token', token),
   refreshDiscordTargets: () => ipcRenderer.invoke('dashboard:refresh-discord-targets'),
   setDiscordGuild: (guildId) => ipcRenderer.invoke('dashboard:set-discord-guild', guildId),

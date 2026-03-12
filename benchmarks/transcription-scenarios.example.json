@@ -1,0 +1,30 @@
+{
+  "scenarios": [
+    {
+      "name": "gm-long-narration",
+      "audio_path": "audio/gm-long-narration.wav",
+      "description": "Continuous GM narration with only brief pauses.",
+      "tags": ["gm", "long-burst"],
+      "reference_text_path": "transcripts/gm-long-narration.txt",
+      "expected_phrases": [
+        "the cavern opens before you"
+      ],
+      "expected_keywords": [
+        "dungeon"
+      ]
+    },
+    {
+      "name": "gm-asides-during-player-talk",
+      "audio_path": "audio/gm-asides-during-player-talk.wav",
+      "description": "Short GM remarks mixed into longer spans of player chatter.",
+      "tags": ["gm", "players", "mixed-speakers"],
+      "expected_phrases": [
+        "roll for initiative"
+      ],
+      "expected_keywords": [
+        "initiative",
+        "combat"
+      ]
+    }
+  ]
+}

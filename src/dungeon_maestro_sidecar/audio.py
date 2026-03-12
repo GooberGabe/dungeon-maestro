@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from importlib import import_module
 from queue import Empty, Queue
 import threading
 
 import numpy as np
 
+from . import load_optional_module
 from .models import PipelineSettings
-
-
-def _load_optional_module(module_name: str):
-    return import_module(module_name)
 
 
 class MicrophoneAudioSource:
@@ -21,7 +17,7 @@ class MicrophoneAudioSource:
     @staticmethod
     def list_input_devices() -> tuple[int | None, list[dict[str, object]]]:
         try:
-            sd = _load_optional_module("sounddevice")
+            sd = load_optional_module("sounddevice")
         except ImportError as exc:
             raise RuntimeError(
                 "sounddevice is required for microphone capture. Install dependencies first."
@@ -48,7 +44,7 @@ class MicrophoneAudioSource:
     @staticmethod
     def describe_input_device(device: str | int | None) -> str:
         try:
-            sd = _load_optional_module("sounddevice")
+            sd = load_optional_module("sounddevice")
         except ImportError as exc:
             raise RuntimeError(
                 "sounddevice is required for microphone capture. Install dependencies first."
@@ -69,7 +65,7 @@ class MicrophoneAudioSource:
 
     def stream_chunks(self, stop_event: threading.Event | None = None) -> Iterator[np.ndarray]:
         try:
-            sd = _load_optional_module("sounddevice")
+            sd = load_optional_module("sounddevice")
         except ImportError as exc:
             raise RuntimeError(
                 "sounddevice is required for microphone capture. Install dependencies first."

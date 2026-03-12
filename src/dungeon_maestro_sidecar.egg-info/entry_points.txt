@@ -1,2 +1,3 @@
 [console_scripts]
+dungeon-maestro-benchmark-transcription = dungeon_maestro_sidecar.benchmark_transcription:main
 dungeon-maestro-sidecar = dungeon_maestro_sidecar.cli:main

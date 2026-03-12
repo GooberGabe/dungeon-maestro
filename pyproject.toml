@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dungeon-maestro-sidecar"
 version = "0.1.0"
-description = "Phase 1 audio pipeline sidecar for DungeonMaestro"
+description = "Audio pipeline sidecar for DungeonMaestro"
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.26,<3",
@@ -27,6 +27,7 @@ discord = [
 
 [project.scripts]
 dungeon-maestro-sidecar = "dungeon_maestro_sidecar.cli:main"
+dungeon-maestro-benchmark-transcription = "dungeon_maestro_sidecar.benchmark_transcription:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

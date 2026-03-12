@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-from importlib import import_module
-
+from . import load_optional_module
 from .models import ResolvedTrack
-
-
-def _load_optional_module(module_name: str):
-    return import_module(module_name)
 
 
 class YtDlpTrackResolver:
     def __init__(self) -> None:
         try:
-            yt_dlp = _load_optional_module("yt_dlp")
+            yt_dlp = load_optional_module("yt_dlp")
         except ImportError as exc:
             raise RuntimeError("yt-dlp is required for track resolution.") from exc
 

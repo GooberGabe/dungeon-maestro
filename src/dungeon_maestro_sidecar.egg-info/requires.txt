@@ -1,6 +1,13 @@
 numpy<3,>=1.26
+PyYAML<7,>=6.0
 sounddevice<1,>=0.4.6
+websockets<16,>=14
 yt-dlp<2026.0.0,>=2025.1.0
+
+[discord]
+discord.py<3,>=2.5.0
+davey<1,>=0.2
+PyNaCl<2,>=1.5
 
 [ml]
 faster-whisper<2,>=1.0.0

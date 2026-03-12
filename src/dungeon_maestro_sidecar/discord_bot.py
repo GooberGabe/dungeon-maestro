@@ -119,6 +119,7 @@ class DiscordVoiceBridge:
         self._thread: threading.Thread | None = None
         self._ready_event = threading.Event()
         self._startup_error: BaseException | None = None
+        self._playback_error: BaseException | None = None
 
     def start(self, timeout_seconds: float = 30.0) -> None:
         if self._thread is not None:
@@ -257,7 +258,7 @@ class DiscordVoiceBridge:
             source.cleanup()
         finally:
             if exc:
-                self._startup_error = exc
+                self._playback_error = exc
 
     async def _shutdown(self) -> None:
         if self._client is None:

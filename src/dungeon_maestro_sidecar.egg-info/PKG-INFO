@@ -3,8 +3,16 @@ Name: dungeon-maestro-sidecar
 Version: 0.1.0
 Summary: Phase 1 audio pipeline sidecar for DungeonMaestro
 Requires-Python: >=3.10
+License-File: LICENSE
 Requires-Dist: numpy<3,>=1.26
+Requires-Dist: PyYAML<7,>=6.0
 Requires-Dist: sounddevice<1,>=0.4.6
+Requires-Dist: websockets<16,>=14
 Requires-Dist: yt-dlp<2026.0.0,>=2025.1.0
 Provides-Extra: ml
 Requires-Dist: faster-whisper<2,>=1.0.0; extra == "ml"
+Provides-Extra: discord
+Requires-Dist: discord.py<3,>=2.5.0; extra == "discord"
+Requires-Dist: davey<1,>=0.2; extra == "discord"
+Requires-Dist: PyNaCl<2,>=1.5; extra == "discord"
+Dynamic: license-file

@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config",
-        default="tabletop-dj.yaml",
+        default="dungeon-maestro.yaml",
         help="Path to the YAML config file.",
     )
     parser.add_argument(

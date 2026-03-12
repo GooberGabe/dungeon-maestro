@@ -276,7 +276,8 @@ class LiveSessionRuntime:
         if self._player is not None:
             self._player.stop()
             self._player = None
-        self._current_track = None
+        with self._session_lock:
+            self._current_track = None
         self._status.update(
             {
                 "sessionRunning": False,
@@ -306,7 +307,8 @@ class LiveSessionRuntime:
                 "pendingTransition": None,
             }
         )
-        self._current_track = track
+        with self._session_lock:
+            self._current_track = track
         self._play_track_on_active_output(track)
         if self._status["playbackPaused"]:
             self._apply_pause_state(True)
@@ -411,7 +413,8 @@ class LiveSessionRuntime:
             self._status["currentTrackTitle"] = event.track.title
             self._status["currentTrackIndex"] = event.track_index
             self._status["pendingTransition"] = None
-            self._current_track = event.track
+            with self._session_lock:
+                self._current_track = event.track
             self._play_track_on_active_output(event.track)
             self._emit(
                 "track_started",
@@ -449,12 +452,14 @@ class LiveSessionRuntime:
 
     def _configure_output_mode(self, output_mode: str, replay_current_track: bool) -> None:
         next_mode = normalize_output_mode(output_mode)
+        with self._session_lock:
+            current_track = self._current_track
 
         if next_mode == "discord":
             next_bridge = self._build_discord_bridge()
-            if replay_current_track and self._current_track is not None:
+            if replay_current_track and current_track is not None:
                 try:
-                    next_bridge.play(self._current_track)
+                    next_bridge.play(current_track)
                 except Exception:
                     next_bridge.stop()
                     raise
@@ -469,8 +474,8 @@ class LiveSessionRuntime:
             self._emit("discord_connected", {"voice_channel_id": self._options.discord_voice_channel_id})
         else:
             next_player = self._player if self._player is not None else LocalAudioPlayer(playback_controller=self._playback_controller)
-            if replay_current_track and self._current_track is not None:
-                next_player.play(self._current_track)
+            if replay_current_track and current_track is not None:
+                next_player.play(current_track)
 
             if self._discord_bridge is not None:
                 self._discord_bridge.stop()

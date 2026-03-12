@@ -4,29 +4,25 @@ settings:
   default_collection: ambient
   enable_transition_proposals: true
   transition_popup_timeout: 30
-  # Optional: set this to a sounddevice input device index or exact device name.
   input_device: 1
-  # Optional for faster live testing while tuning the mic/VAD path.
-  transcription_window_seconds: 1.0
+  transcription_window_seconds: 1
   transcription_stride_seconds: 0.5
   transcription_profile: fast
-
 collections:
   ambient:
-    name: "Ambient Exploration"
+    name: Ambient Exploration
     keywords:
       - explore
       - travel
       - walk
       - ambient
     tracks:
-      - source: "fantasy exploration ambience"
-      - source: "forest ambience for tabletop rpg"
+      - source: fantasy exploration ambience
+      - source: forest ambience for tabletop rpg
     playback:
       mode: sequential_loop
-
   combat:
-    name: "Combat"
+    name: Combat
     keywords:
       - combat
       - fight
@@ -34,33 +30,31 @@ collections:
       - initiative
       - roll for initiative
     tracks:
-      - source: "epic combat music dnd"
-      - source: "Bloodborne Soundtrack full OST"
-      - source: "intense orchestral battle music"
+      - source: epic combat music dnd
+      - source: Bloodborne Soundtrack full OST
+      - source: intense orchestral battle music
     playback:
       mode: sequential_loop
-
   tavern:
-    name: "Tavern"
+    name: Tavern
     keywords:
       - tavern
       - inn
       - rest
       - town
     tracks:
-      - source: "medieval tavern music ambience"
+      - source: medieval tavern music ambience
     playback:
       mode: sequential_loop
-
   dungeon:
-    name: "Dungeon"
+    name: Dungeon
     keywords:
       - dungeon
       - cave
       - underground
       - darkness
     tracks:
-      - source: "dark dungeon ambience no music"
-      - source: "cavern ambience dark fantasy"
+      - source: dark dungeon ambience no music
+      - source: cavern ambience dark fantasy
     playback:
       mode: sequential_loop

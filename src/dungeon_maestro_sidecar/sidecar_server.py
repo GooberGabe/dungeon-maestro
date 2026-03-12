@@ -68,7 +68,7 @@ class SidecarServer:
                 return self._last_status
             self._startup_cancel_requested = False
             options = RuntimeOptions(
-                config_path=str(payload.get("config_path") or Path("tabletop-dj.yaml")),
+                config_path=str(payload.get("config_path") or Path("dungeon-maestro.yaml")),
                 starting_collection=payload.get("starting_collection"),
                 session_state_path=payload.get("session_state_path"),
                 resume=bool(payload.get("resume", False)),

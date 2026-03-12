@@ -3,12 +3,25 @@ import { useEffect, useMemo, useState } from 'react'
 import DashboardWindow from './components/DashboardWindow'
 import PinnedHud from './components/PinnedHud'
 import { ICONS, VIEW_MODE } from './constants'
+import { createCollectionDraft, createNewCollectionDraft, validateCollectionDraft } from './libraryEditor'
 
 function App() {
   const [bootstrap, setBootstrap] = useState(null)
   const [botTokenDraft, setBotTokenDraft] = useState('')
   const [startingCollection, setStartingCollection] = useState('')
   const [selectedLibraryCollectionId, setSelectedLibraryCollectionId] = useState('')
+  const [librarySearchQuery, setLibrarySearchQuery] = useState('')
+  const [collectionDraft, setCollectionDraft] = useState(null)
+  const [pendingNewCollectionId, setPendingNewCollectionId] = useState('')
+  const [isCreateCollectionPromptOpen, setIsCreateCollectionPromptOpen] = useState(false)
+  const [newCollectionIdDraft, setNewCollectionIdDraft] = useState('')
+  const [newCollectionPromptError, setNewCollectionPromptError] = useState('')
+  const [isCollectionEditing, setIsCollectionEditing] = useState(false)
+  const [collectionEditorError, setCollectionEditorError] = useState('')
+  const [collectionSavePending, setCollectionSavePending] = useState(false)
+  const [trackPreviewState, setTrackPreviewState] = useState({})
+  const [newKeywordDraft, setNewKeywordDraft] = useState('')
+  const [newTrackDraft, setNewTrackDraft] = useState('')
   const [workspaceTab, setWorkspaceTab] = useState('live')
   const [nowEpoch, setNowEpoch] = useState(() => Date.now() / 1000)
   const [sessionActionPending, setSessionActionPending] = useState(false)
@@ -81,6 +94,25 @@ function App() {
   const state = bootstrap?.state
   const settings = bootstrap?.settings
   const discordTargets = state?.discordTargets || []
+  const effectiveCollections = useMemo(() => {
+    if (!pendingNewCollectionId || collections.some((collection) => collection.collectionId === pendingNewCollectionId)) {
+      return collections
+    }
+
+    const draft = collectionDraft || createNewCollectionDraft(pendingNewCollectionId)
+    return [
+      {
+        collectionId: pendingNewCollectionId,
+        name: draft.name,
+        keywords: draft.keywords,
+        tracks: draft.tracks.map((source) => ({ source, preview: null })),
+        trackCount: draft.tracks.length,
+        playbackMode: 'sequential_loop',
+        isDraft: true,
+      },
+      ...collections,
+    ]
+  }, [collectionDraft, collections, pendingNewCollectionId])
 
   const selectedGuild = useMemo(
     () => discordTargets.find((guild) => guild.id === settings?.discordGuildId) || null,
@@ -95,20 +127,160 @@ function App() {
   )
 
   const selectedLibraryCollection = useMemo(
-    () => collections.find((collection) => collection.collectionId === selectedLibraryCollectionId) || null,
-    [collections, selectedLibraryCollectionId]
+    () => effectiveCollections.find((collection) => collection.collectionId === selectedLibraryCollectionId) || null,
+    [effectiveCollections, selectedLibraryCollectionId]
   )
+
+  const libraryFocusCollection = selectedLibraryCollection || activeCollection || effectiveCollections[0] || null
+
+  const collectionDraftValidation = useMemo(
+    () => validateCollectionDraft(collectionDraft || createCollectionDraft(libraryFocusCollection)),
+    [collectionDraft, libraryFocusCollection]
+  )
+
+  const filteredCollections = useMemo(() => {
+    const query = librarySearchQuery.trim().toLowerCase()
+    if (!query) {
+      return effectiveCollections
+    }
+
+    return effectiveCollections.filter((collection) => {
+      const searchableParts = [
+        collection.name,
+        collection.collectionId,
+        ...(collection.keywords || []),
+      ]
+      return searchableParts.some((value) => String(value || '').toLowerCase().includes(query))
+    })
+  }, [effectiveCollections, librarySearchQuery])
+
+  useEffect(() => {
+    if (!effectiveCollections.length) {
+      return
+    }
+
+    const hasSelection = effectiveCollections.some((collection) => collection.collectionId === selectedLibraryCollectionId)
+    if (!hasSelection) {
+      setSelectedLibraryCollectionId(state?.activeCollection || startingCollection || effectiveCollections[0].collectionId)
+    }
+  }, [effectiveCollections, selectedLibraryCollectionId, startingCollection, state?.activeCollection])
 
   useEffect(() => {
     if (!collections.length) {
       return
     }
 
-    const hasSelection = collections.some((collection) => collection.collectionId === selectedLibraryCollectionId)
-    if (!hasSelection) {
-      setSelectedLibraryCollectionId(state?.activeCollection || startingCollection || collections[0].collectionId)
+    setTrackPreviewState((current) => {
+      const nextState = { ...current }
+      let changed = false
+
+      effectiveCollections.forEach((collection) => {
+        ;(collection.tracks || []).forEach((track) => {
+          const source = String(track?.source || '').trim()
+          if (!source || !track?.preview) {
+            return
+          }
+          if (nextState[source]?.status === 'ready') {
+            return
+          }
+          nextState[source] = {
+            status: 'ready',
+            source,
+            ok: Boolean(track.preview.ok),
+            title: track.preview.title || '',
+            webpageUrl: track.preview.webpage_url || '',
+            durationSeconds: track.preview.duration_seconds ?? null,
+            message: track.preview.message || '',
+          }
+          changed = true
+        })
+      })
+
+      return changed ? nextState : current
+    })
+  }, [effectiveCollections])
+
+  useEffect(() => {
+    if (!libraryFocusCollection || isCollectionEditing) {
+      return
     }
-  }, [collections, selectedLibraryCollectionId, startingCollection, state?.activeCollection])
+    setCollectionDraft(createCollectionDraft(libraryFocusCollection))
+    setCollectionEditorError('')
+    setNewKeywordDraft('')
+    setNewTrackDraft('')
+  }, [libraryFocusCollection, isCollectionEditing])
+
+  useEffect(() => {
+    const candidateSources = isCollectionEditing
+      ? (collectionDraft?.tracks || [])
+      : ((libraryFocusCollection?.tracks || []).map((track) => track.source))
+
+    if (!candidateSources.length) {
+      return undefined
+    }
+
+    const nextValidSources = []
+    candidateSources.forEach((trackSource, index) => {
+      const normalizedSource = String(trackSource || '').trim()
+      if (!normalizedSource) {
+        return
+      }
+      if (isCollectionEditing) {
+        if (collectionDraftValidation.trackErrors[index]) {
+          return
+        }
+        if (!collectionDraftValidation.trackTypes[index]?.valid) {
+          return
+        }
+      }
+      nextValidSources.push(normalizedSource)
+    })
+
+    if (!nextValidSources.length) {
+      return undefined
+    }
+
+    const uniqueSources = [...new Set(nextValidSources)]
+    const timeoutId = window.setTimeout(() => {
+      uniqueSources.forEach((source) => {
+        setTrackPreviewState((current) => {
+          if (current[source]?.status === 'ready' || current[source]?.status === 'pending') {
+            return current
+          }
+          return {
+            ...current,
+            [source]: {
+              status: 'pending',
+              source,
+            },
+          }
+        })
+
+        void window.dungeonMaestro.previewTrackSource(source).then((preview) => {
+          setTrackPreviewState((current) => {
+            const currentPreview = current[source]
+            if (!currentPreview || currentPreview.source !== source) {
+              return current
+            }
+            return {
+              ...current,
+              [source]: {
+                status: 'ready',
+                source,
+                ok: Boolean(preview?.ok),
+                title: preview?.title || '',
+                webpageUrl: preview?.webpage_url || '',
+                durationSeconds: preview?.duration_seconds ?? null,
+                message: preview?.message || '',
+              },
+            }
+          })
+        })
+      })
+    }, isCollectionEditing ? 350 : 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [collectionDraft, collectionDraftValidation, isCollectionEditing, libraryFocusCollection])
 
   useEffect(() => {
     if (!state?.pendingTransition?.expiresAtEpoch) {
@@ -229,7 +401,6 @@ function App() {
     setBootstrap(updated)
   }
 
-  const libraryFocusCollection = selectedLibraryCollection || activeCollection || collections[0] || null
   const selectedDiscordVoiceChannel = selectedVoiceChannels.find((channel) => channel.id === settings.discordVoiceChannelId) || null
   const lastTranscript = state.lastTranscript || 'No transcript captured yet.'
   const lastError = state.lastError || 'No active errors.'
@@ -319,6 +490,219 @@ function App() {
     setBootstrap(updated)
   }
 
+  const selectLibraryCollection = (collectionId) => {
+    if (isCollectionEditing && collectionId !== selectedLibraryCollectionId) {
+      return
+    }
+    setSelectedLibraryCollectionId(collectionId)
+  }
+
+  const startCollectionEdit = () => {
+    if (!libraryFocusCollection) {
+      return
+    }
+    setCollectionDraft(createCollectionDraft(libraryFocusCollection))
+    setCollectionEditorError('')
+    setNewKeywordDraft('')
+    setNewTrackDraft('')
+    setIsCollectionEditing(true)
+  }
+
+  const cancelCollectionEdit = () => {
+    if (pendingNewCollectionId && libraryFocusCollection?.collectionId === pendingNewCollectionId) {
+      setPendingNewCollectionId('')
+      setCollectionDraft(null)
+      setSelectedLibraryCollectionId(activeCollection?.collectionId || collections[0]?.collectionId || '')
+    } else {
+      setCollectionDraft(createCollectionDraft(libraryFocusCollection))
+    }
+    setCollectionEditorError('')
+    setNewKeywordDraft('')
+    setNewTrackDraft('')
+    setIsCollectionEditing(false)
+  }
+
+  const startNewCollection = () => {
+    if (isCollectionEditing) {
+      return
+    }
+    setNewCollectionIdDraft('')
+    setNewCollectionPromptError('')
+    setIsCreateCollectionPromptOpen(true)
+  }
+
+  const cancelCreateCollectionPrompt = () => {
+    setIsCreateCollectionPromptOpen(false)
+    setNewCollectionIdDraft('')
+    setNewCollectionPromptError('')
+  }
+
+  const confirmCreateCollection = () => {
+    const nextCollectionId = newCollectionIdDraft.trim()
+    if (!nextCollectionId) {
+      setNewCollectionPromptError('Collection id cannot be empty.')
+      return
+    }
+
+    if (effectiveCollections.some((collection) => collection.collectionId.toLowerCase() === nextCollectionId.toLowerCase())) {
+      setNewCollectionPromptError(`Collection id "${nextCollectionId}" is already taken.`)
+      return
+    }
+
+    const draft = createNewCollectionDraft(nextCollectionId)
+    setPendingNewCollectionId(nextCollectionId)
+    setCollectionDraft(draft)
+    setSelectedLibraryCollectionId(nextCollectionId)
+    setCollectionEditorError('')
+    setNewKeywordDraft('')
+    setNewTrackDraft('')
+    setIsCollectionEditing(true)
+    setIsCreateCollectionPromptOpen(false)
+    setNewCollectionIdDraft('')
+    setNewCollectionPromptError('')
+  }
+
+  const updateCollectionDraftField = (field, value) => {
+    setCollectionDraft((currentDraft) => ({
+      ...(currentDraft || createCollectionDraft(libraryFocusCollection)),
+      [field]: value,
+    }))
+    setCollectionEditorError('')
+  }
+
+  const updateKeywordAtIndex = (index, value) => {
+    setCollectionDraft((currentDraft) => {
+      if (!currentDraft) {
+        return currentDraft
+      }
+      const keywords = [...currentDraft.keywords]
+      keywords[index] = value
+      return { ...currentDraft, keywords }
+    })
+    setCollectionEditorError('')
+  }
+
+  const removeKeywordAtIndex = (index) => {
+    setCollectionDraft((currentDraft) => {
+      if (!currentDraft) {
+        return currentDraft
+      }
+      return {
+        ...currentDraft,
+        keywords: currentDraft.keywords.filter((_, keywordIndex) => keywordIndex !== index),
+      }
+    })
+    setCollectionEditorError('')
+  }
+
+  const addKeywordToDraft = () => {
+    if (!collectionDraft) {
+      return
+    }
+    setCollectionDraft({
+      ...collectionDraft,
+      keywords: [...collectionDraft.keywords, newKeywordDraft],
+    })
+    setNewKeywordDraft('')
+    setCollectionEditorError('')
+  }
+
+  const updateTrackAtIndex = (index, value) => {
+    setCollectionDraft((currentDraft) => {
+      if (!currentDraft) {
+        return currentDraft
+      }
+      const tracks = [...currentDraft.tracks]
+      tracks[index] = value
+      return { ...currentDraft, tracks }
+    })
+    setCollectionEditorError('')
+  }
+
+  const removeTrackAtIndex = (index) => {
+    setCollectionDraft((currentDraft) => {
+      if (!currentDraft) {
+        return currentDraft
+      }
+      return {
+        ...currentDraft,
+        tracks: currentDraft.tracks.filter((_, trackIndex) => trackIndex !== index),
+      }
+    })
+    setCollectionEditorError('')
+  }
+
+  const addTrackToDraft = () => {
+    if (!collectionDraft) {
+      return
+    }
+    setCollectionDraft({
+      ...collectionDraft,
+      tracks: [...collectionDraft.tracks, newTrackDraft],
+    })
+    setNewTrackDraft('')
+    setCollectionEditorError('')
+  }
+
+  const saveCollectionEdit = async () => {
+    if (!collectionDraftValidation.isValid || !collectionDraftValidation.normalized) {
+      setCollectionEditorError('Resolve the validation issues before saving this collection.')
+      return
+    }
+
+    setCollectionSavePending(true)
+    setCollectionEditorError('')
+    try {
+      const updated = await window.dungeonMaestro.saveCollectionEdits(
+        collectionDraftValidation.normalized.collectionId,
+        collectionDraftValidation.normalized,
+      )
+      setBootstrap(updated)
+      setPendingNewCollectionId('')
+      const updatedCollection = updated.config.collections.find((collection) => collection.collectionId === collectionDraftValidation.normalized.collectionId) || null
+      setCollectionDraft(createCollectionDraft(updatedCollection))
+      setSelectedLibraryCollectionId(collectionDraftValidation.normalized.collectionId)
+      setIsCollectionEditing(false)
+      setNewKeywordDraft('')
+      setNewTrackDraft('')
+    } catch (error) {
+      setCollectionEditorError(error?.message || String(error))
+    } finally {
+      setCollectionSavePending(false)
+    }
+  }
+
+  const deleteCollection = async () => {
+    const targetCollectionId = libraryFocusCollection?.collectionId || ''
+    if (!targetCollectionId || pendingNewCollectionId === targetCollectionId) {
+      return
+    }
+
+    setCollectionSavePending(true)
+    setCollectionEditorError('')
+    try {
+      const updated = await window.dungeonMaestro.deleteCollection(targetCollectionId)
+      const fallbackCollectionId = updated.config.settings.default_collection || updated.config.collections[0]?.collectionId || ''
+      const fallbackCollection = updated.config.collections.find((collection) => collection.collectionId === fallbackCollectionId) || null
+      const nextStartingCollection = updated.config.collections.some((collection) => collection.collectionId === startingCollection)
+        ? startingCollection
+        : fallbackCollectionId
+
+      setBootstrap(updated)
+      setStartingCollection(nextStartingCollection)
+      setPendingNewCollectionId('')
+      setSelectedLibraryCollectionId(fallbackCollectionId)
+      setCollectionDraft(fallbackCollection ? createCollectionDraft(fallbackCollection) : null)
+      setIsCollectionEditing(false)
+      setNewKeywordDraft('')
+      setNewTrackDraft('')
+    } catch (error) {
+      setCollectionEditorError(error?.message || String(error))
+    } finally {
+      setCollectionSavePending(false)
+    }
+  }
+
   if (isHudWindow) {
     return (
       <PinnedHud
@@ -351,7 +735,10 @@ function App() {
       botTokenDraft={botTokenDraft}
       chooseDiscordGuild={chooseDiscordGuild}
       chooseDiscordVoiceChannel={chooseDiscordVoiceChannel}
-      collections={collections}
+      collections={effectiveCollections}
+      createCollection={startNewCollection}
+      cancelCreateCollectionPrompt={cancelCreateCollectionPrompt}
+      confirmCreateCollection={confirmCreateCollection}
       dismissTransition={dismissTransition}
       discordTargets={discordTargets}
       endSession={endSession}
@@ -366,24 +753,51 @@ function App() {
       lastError={lastError}
       lastTranscript={lastTranscript}
       libraryFocusCollection={libraryFocusCollection}
+      collectionDraft={collectionDraft}
+      collectionDraftValidation={collectionDraftValidation}
+      collectionEditorError={collectionEditorError}
+      collectionSavePending={collectionSavePending}
+      trackPreviewState={trackPreviewState}
       playbackMuted={playbackMuted}
       playbackPaused={playbackPaused}
       playbackRouteLabel={playbackRouteLabel}
       playbackStatusLabel={playbackStatusLabel}
       playbackVolumePercent={playbackVolumePercent}
+      filteredCollections={filteredCollections}
+      isCollectionEditing={isCollectionEditing}
+      librarySearchQuery={librarySearchQuery}
+      newKeywordDraft={newKeywordDraft}
+      newCollectionIdDraft={newCollectionIdDraft}
+      newCollectionPromptError={newCollectionPromptError}
+      newTrackDraft={newTrackDraft}
       outputMode={activeOutputMode}
       refreshDiscordTargets={refreshDiscordTargets}
       saveBotToken={saveBotToken}
+      saveCollectionEdit={saveCollectionEdit}
       selectedDiscordVoiceChannel={selectedDiscordVoiceChannel}
       selectedGuild={selectedGuild}
       selectedLibraryCollectionId={selectedLibraryCollectionId}
+      selectLibraryCollection={selectLibraryCollection}
       selectedVoiceChannels={selectedVoiceChannels}
       sessionStatusClass={sessionStatusClass}
       sessionStatusLabel={sessionStatusLabel}
+      setCollectionDraftField={updateCollectionDraftField}
       setBotTokenDraft={setBotTokenDraft}
-      setSelectedLibraryCollectionId={setSelectedLibraryCollectionId}
+      setNewCollectionIdDraft={setNewCollectionIdDraft}
+      setNewKeywordDraft={setNewKeywordDraft}
+      setNewTrackDraft={setNewTrackDraft}
+      setLibrarySearchQuery={setLibrarySearchQuery}
       setStartingCollection={setStartingCollection}
       setWorkspaceTab={setWorkspaceTab}
+      startCollectionEdit={startCollectionEdit}
+      cancelCollectionEdit={cancelCollectionEdit}
+      deleteCollection={deleteCollection}
+      addKeywordToDraft={addKeywordToDraft}
+      removeKeywordAtIndex={removeKeywordAtIndex}
+      updateKeywordAtIndex={updateKeywordAtIndex}
+      addTrackToDraft={addTrackToDraft}
+      removeTrackAtIndex={removeTrackAtIndex}
+      updateTrackAtIndex={updateTrackAtIndex}
       settings={settings}
       skipTrack={skipTrack}
       startSession={startSession}
@@ -395,6 +809,7 @@ function App() {
       transcriptionEnabled={transcriptionEnabled}
       transcriptionProfile={transcriptionProfile}
       handleTranscriptionProfileChange={handleTranscriptionProfileChange}
+      isCreateCollectionPromptOpen={isCreateCollectionPromptOpen}
       transitionProgress={transitionProgress}
       transitionProposalsEnabled={transitionProposalsEnabled}
       transitionTimeoutSeconds={transitionTimeoutSeconds}

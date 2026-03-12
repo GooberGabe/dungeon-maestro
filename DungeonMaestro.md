@@ -92,7 +92,7 @@ Mic Input
 ### 4.1 Full Schema Reference
 
 ```yaml
-# tabletop-dj.yaml
+# dungeon-maestro.yaml
 settings:
   cooldown_seconds: 180          # Time after approval before re-detecting transitions
   whisper_model: base            # tiny | base | small
@@ -399,7 +399,7 @@ All messages between the Python sidecar and Electron are JSON objects transmitte
 - Session state persistence (JSON read/write on every transition)
 - Session resume on relaunch
 
-**Deliverable:** CLI tool now reads from `tabletop-dj.yaml`. Fully configurable without code changes.
+**Deliverable:** CLI tool now reads from `dungeon-maestro.yaml`. Fully configurable without code changes.
 
 ### Phase 3 — Discord Bot Integration
 

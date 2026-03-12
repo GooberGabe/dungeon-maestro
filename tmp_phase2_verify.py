@@ -29,11 +29,11 @@ class StaticResolver:
         return ResolvedTrack(source=source, title=source, webpage_url=source)
 
 
-settings, collections = load_pipeline_config("tabletop-dj.yaml")
+settings, collections = load_pipeline_config("dungeon-maestro.yaml")
 settings.cooldown_seconds = 5
 settings.transcription_window_seconds = 0.01
 settings.transcription_stride_seconds = 0.01
-state_path = Path("tabletop-dj.test-session.json")
+state_path = Path("dungeon-maestro.test-session.json")
 if state_path.exists():
     state_path.unlink()
 
