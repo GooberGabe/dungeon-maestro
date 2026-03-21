@@ -2,41 +2,59 @@ function normalizeText(value) {
   return String(value || '').trim()
 }
 
-function defaultKeywordFromCollectionId(collectionId) {
-  return normalizeText(collectionId)
+function soundscapeIdOf(soundscape) {
+  return soundscape?.soundscapeId || soundscape?.collectionId || ''
+}
+
+function defaultKeywordFromSoundscapeId(soundscapeId) {
+  return normalizeText(soundscapeId)
     .replace(/[^a-z0-9]+/gi, ' ')
     .replace(/\s+/g, ' ')
     .toLowerCase()
 }
 
-export function createCollectionDraft(collection) {
-  if (!collection) {
+export function createSoundscapeDraft(soundscape) {
+  if (!soundscape) {
     return null
   }
 
   return {
-    collectionId: collection.collectionId,
-    name: collection.name || '',
-    keywords: Array.isArray(collection.keywords) ? [...collection.keywords] : [],
-    tracks: Array.isArray(collection.tracks) ? collection.tracks.map((track) => track?.source || '') : [],
+    soundscapeId: soundscapeIdOf(soundscape),
+    collectionId: soundscapeIdOf(soundscape),
+    name: soundscape.name || '',
+    keywords: Array.isArray(soundscape.keywords) ? [...soundscape.keywords] : [],
+    tracks: Array.isArray(soundscape.tracks) ? soundscape.tracks.map((track) => track?.source || '') : [],
   }
 }
 
-export function createNewCollectionDraft(collectionId) {
-  const normalizedId = normalizeText(collectionId)
-  const defaultKeyword = defaultKeywordFromCollectionId(normalizedId)
-  const displayName = normalizedId
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
+export function createCollectionDraft(collection) {
+  return createSoundscapeDraft(collection)
+}
+
+function generateSoundscapeId() {
+  const array = new Uint32Array(1)
+  crypto.getRandomValues(array)
+  return String(array[0])
+}
+
+function generateCollectionId() {
+  return generateSoundscapeId()
+}
+
+export function createNewSoundscapeDraft(soundscapeName) {
+  const normalizedName = normalizeText(soundscapeName)
 
   return {
-    collectionId: normalizedId,
-    name: displayName,
-    keywords: defaultKeyword ? [defaultKeyword] : [],
+    soundscapeId: generateSoundscapeId(),
+    collectionId: generateCollectionId(),
+    name: normalizedName,
+    keywords: [],
     tracks: [],
   }
+}
+
+export function createNewCollectionDraft(collectionName) {
+  return createNewSoundscapeDraft(collectionName)
 }
 
 export function inferTrackSource(source) {
@@ -78,7 +96,7 @@ export function inferTrackSource(source) {
   return { type: 'url', label: 'Direct URL', valid: true, message: 'This source will resolve directly at playback time.' }
 }
 
-export function validateCollectionDraft(draft) {
+export function validateSoundscapeDraft(draft) {
   if (!draft) {
     return {
       isValid: false,
@@ -97,13 +115,10 @@ export function validateCollectionDraft(draft) {
 
   const normalizedName = normalizeText(draft.name)
   if (!normalizedName) {
-    fieldErrors.name = 'Collection name cannot be empty.'
+    fieldErrors.name = 'Soundscape name cannot be empty.'
   }
 
   const normalizedKeywords = draft.keywords.map((keyword) => normalizeText(keyword))
-  if (normalizedKeywords.length === 0) {
-    fieldErrors.keywords = 'Add at least one keyword.'
-  }
 
   const seenKeywords = new Map()
   normalizedKeywords.forEach((keyword, index) => {
@@ -154,6 +169,7 @@ export function validateCollectionDraft(draft) {
   return {
     isValid: !hasFieldErrors && !hasKeywordErrors && !hasTrackErrors,
     normalized: {
+      soundscapeId: draft.soundscapeId || draft.collectionId,
       collectionId: draft.collectionId,
       name: normalizedName,
       keywords: normalizedKeywords,
@@ -164,4 +180,8 @@ export function validateCollectionDraft(draft) {
     trackErrors,
     trackTypes,
   }
+}
+
+export function validateCollectionDraft(draft) {
+  return validateSoundscapeDraft(draft)
 }

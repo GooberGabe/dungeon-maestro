@@ -28,9 +28,11 @@ class SessionStateStore:
         cooldown_remaining = max(0, int(state.cooldown_until_epoch - time.time()))
         payload = {
             "session_id": state.session_id,
+            "active_soundscape": state.active_soundscape_id,
             "active_collection": state.active_collection_id,
             "track_index": state.active_track_index,
             "cooldown_remaining": cooldown_remaining,
+            "next_track_index_by_soundscape": state.next_track_index_by_soundscape,
             "next_track_index_by_collection": state.next_track_index_by_collection,
             "log": state.session_log,
         }

@@ -22,6 +22,7 @@ class SidecarServer:
         self._last_status: dict[str, object] = {
             "sessionRunning": False,
             "startupInProgress": False,
+            "activeSoundscape": None,
             "activeCollection": None,
             "currentTrackTitle": "No track active",
             "currentTrackIndex": None,
@@ -33,6 +34,10 @@ class SidecarServer:
             "volumePercent": 100,
             "playbackMuted": False,
             "playbackPaused": False,
+            "crossfadeEnabled": False,
+            "crossfadeDurationSeconds": 3.0,
+            "loopEnabled": False,
+            "crossfadePauseEnabled": False,
         }
 
     async def handle_connection(self, websocket) -> None:
@@ -69,6 +74,7 @@ class SidecarServer:
             self._startup_cancel_requested = False
             options = RuntimeOptions(
                 config_path=str(payload.get("config_path") or Path("dungeon-maestro.yaml")),
+                starting_soundscape=payload.get("starting_soundscape"),
                 starting_collection=payload.get("starting_collection"),
                 session_state_path=payload.get("session_state_path"),
                 resume=bool(payload.get("resume", False)),
@@ -85,13 +91,16 @@ class SidecarServer:
                 discord_token=payload.get("discord_token"),
                 discord_guild_id=_optional_int(payload.get("discord_guild_id")),
                 discord_voice_channel_id=_optional_int(payload.get("discord_voice_channel_id")),
+                crossfade_enabled=_optional_bool(payload.get("crossfade_enabled")),
+                crossfade_duration_seconds=_optional_float(payload.get("crossfade_duration_seconds")),
             )
             self._runtime = LiveSessionRuntime(options, on_event=self._threadsafe_emit)
             self._last_status = {
                 **self._last_status,
                 "sessionRunning": True,
                 "startupInProgress": True,
-                "activeCollection": options.starting_collection,
+                "activeSoundscape": options.starting_soundscape or options.starting_collection,
+                "activeCollection": options.starting_collection or options.starting_soundscape,
                 "currentTrackTitle": "Preparing session...",
                 "lastError": "",
             }
@@ -133,6 +142,10 @@ class SidecarServer:
                 volume_percent=_optional_int(payload.get("volume_percent")),
                 muted=_optional_bool(payload.get("muted")),
                 paused=_optional_bool(payload.get("paused")),
+                crossfade_enabled=_optional_bool(payload.get("crossfade_enabled")),
+                crossfade_duration_seconds=_optional_float(payload.get("crossfade_duration_seconds")),
+                loop_enabled=_optional_bool(payload.get("loop_enabled")),
+                crossfade_pause_enabled=_optional_bool(payload.get("crossfade_pause_enabled")),
             )
             return self._last_status
 
@@ -149,6 +162,57 @@ class SidecarServer:
             if self._runtime is None:
                 raise RuntimeError("Session is not running")
             self._last_status = await asyncio.to_thread(self._runtime.skip_track)
+            return self._last_status
+
+        if command == "seek_track":
+            if self._runtime is None:
+                raise RuntimeError("Session is not running")
+            position = _optional_float(payload.get("position_seconds"))
+            if position is None:
+                raise RuntimeError("position_seconds is required")
+            self._last_status = await asyncio.to_thread(self._runtime.seek_track, position)
+            return self._last_status
+
+        if command == "play_track":
+            if self._runtime is None:
+                raise RuntimeError("Session is not running")
+            collection_id = payload.get("collection_id", "")
+            track_index = _optional_int(payload.get("track_index"))
+            if not collection_id or track_index is None:
+                raise RuntimeError("collection_id and track_index are required")
+            self._last_status = await asyncio.to_thread(
+                self._runtime.play_track_at_index, collection_id, track_index
+            )
+            return self._last_status
+
+        if command == "play_soundscape_track":
+            if self._runtime is None:
+                raise RuntimeError("Session is not running")
+            soundscape_id = payload.get("soundscape_id", payload.get("collection_id", ""))
+            track_index = _optional_int(payload.get("track_index"))
+            if not soundscape_id or track_index is None:
+                raise RuntimeError("soundscape_id and track_index are required")
+            self._last_status = await asyncio.to_thread(
+                self._runtime.play_track_at_index, soundscape_id, track_index
+            )
+            return self._last_status
+
+        if command == "switch_collection":
+            if self._runtime is None:
+                raise RuntimeError("Session is not running")
+            collection_id = payload.get("collection_id", "")
+            if not collection_id:
+                raise RuntimeError("collection_id is required")
+            self._last_status = await asyncio.to_thread(self._runtime.switch_collection, collection_id)
+            return self._last_status
+
+        if command == "switch_soundscape":
+            if self._runtime is None:
+                raise RuntimeError("Session is not running")
+            soundscape_id = payload.get("soundscape_id", payload.get("collection_id", ""))
+            if not soundscape_id:
+                raise RuntimeError("soundscape_id is required")
+            self._last_status = await asyncio.to_thread(self._runtime.switch_collection, soundscape_id)
             return self._last_status
 
         if command == "approve_transition":
@@ -196,6 +260,7 @@ class SidecarServer:
 
     def _threadsafe_emit(self, event_name: str, payload: dict[str, object]) -> None:
         if event_name == "track_started":
+            self._last_status["activeSoundscape"] = payload.get("soundscape", payload.get("collection"))
             self._last_status["activeCollection"] = payload.get("collection")
             self._last_status["currentTrackTitle"] = payload.get("title")
             self._last_status["currentTrackIndex"] = payload.get("track_index")
@@ -208,6 +273,7 @@ class SidecarServer:
         elif event_name == "transition_pending":
             self._last_status["pendingTransition"] = {
                 "keyword": payload.get("keyword"),
+                "targetSoundscape": payload.get("target_soundscape", payload.get("target_collection")),
                 "targetCollection": payload.get("target_collection"),
                 "displayName": payload.get("display_name"),
             }
@@ -215,6 +281,8 @@ class SidecarServer:
             self._last_status["volumePercent"] = payload.get("volumePercent", self._last_status["volumePercent"])
             self._last_status["playbackMuted"] = payload.get("playbackMuted", self._last_status["playbackMuted"])
             self._last_status["playbackPaused"] = payload.get("playbackPaused", self._last_status["playbackPaused"])
+            self._last_status["loopEnabled"] = payload.get("loopEnabled", self._last_status["loopEnabled"])
+            self._last_status["crossfadePauseEnabled"] = payload.get("crossfadePauseEnabled", self._last_status["crossfadePauseEnabled"])
         elif event_name == "session_settings_updated":
             self._last_status["transcriptionProfile"] = payload.get("transcription_profile", self._last_status["transcriptionProfile"])
         elif event_name == "output_mode_updated":
@@ -251,6 +319,12 @@ def _optional_bool(value: Any) -> bool | None:
     if value is None:
         return None
     return bool(value)
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    return float(value)
 
 
 async def run_server(host: str, port: int) -> None:

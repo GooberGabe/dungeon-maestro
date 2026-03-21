@@ -1,5 +1,5 @@
 function PinnedHud({
-  activeCollection,
+  activeSoundscape,
   approveTransition,
   dismissTransition,
   icons,
@@ -25,7 +25,7 @@ function PinnedHud({
             <div className="hud-brand-block">
               <img className="hud-brand-mark" src={icons.logo} alt="" />
               <div className="hud-track-copy">
-                <strong className="hud-collection-name">{activeCollection?.name || 'No active collection'}</strong>
+                <strong className="hud-collection-name">{state.currentTrackIndex !== null ? (activeSoundscape?.name || 'No active soundscape') : 'Waiting to play'}</strong>
                 <span className="hud-track-name">{state.currentTrackTitle}</span>
               </div>
             </div>

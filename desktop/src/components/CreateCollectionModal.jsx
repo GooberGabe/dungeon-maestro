@@ -1,28 +1,28 @@
 function CreateCollectionModal({
   cancelCreateCollectionPrompt,
   confirmCreateCollection,
-  newCollectionIdDraft,
+  newCollectionNameDraft,
   newCollectionPromptError,
-  setNewCollectionIdDraft,
+  setNewCollectionNameDraft,
 }) {
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="panel collection-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-collection-title">
         <div className="panel-header compact">
           <div>
-            <p className="eyebrow">Library</p>
-            <h2 id="create-collection-title">Create Collection</h2>
+            <p className="eyebrow">Soundscapes</p>
+            <h2 id="create-collection-title">Create Soundscape</h2>
           </div>
         </div>
 
-        <label className="field-label" htmlFor="new-collection-id">Collection id</label>
+        <label className="field-label" htmlFor="new-collection-name">Soundscape name</label>
         <input
-          id="new-collection-id"
+          id="new-collection-name"
           className="select-field"
           type="text"
-          value={newCollectionIdDraft}
-          onChange={(event) => setNewCollectionIdDraft(event.target.value)}
-          placeholder="forest-night"
+          value={newCollectionNameDraft}
+          onChange={(event) => setNewCollectionNameDraft(event.target.value)}
+          placeholder="Forest Night"
           autoFocus
         />
         {newCollectionPromptError ? (

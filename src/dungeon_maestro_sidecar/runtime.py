@@ -29,6 +29,7 @@ def normalize_output_mode(output_mode: str | None) -> str:
 class RuntimeOptions:
     config_path: str
     starting_collection: str | None = None
+    starting_soundscape: str | None = None
     session_state_path: str | None = None
     resume: bool = False
     input_device: str | int | None = None
@@ -44,6 +45,14 @@ class RuntimeOptions:
     discord_token: str | None = None
     discord_guild_id: int | None = None
     discord_voice_channel_id: int | None = None
+    crossfade_enabled: bool | None = None
+    crossfade_duration_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.starting_soundscape is None:
+            self.starting_soundscape = self.starting_collection
+        if self.starting_collection is None:
+            self.starting_collection = self.starting_soundscape
 
 
 class LiveSessionRuntime:
@@ -65,8 +74,13 @@ class LiveSessionRuntime:
         playback_snapshot = self._playback_controller.snapshot()
         initial_output_mode = normalize_output_mode(options.output_mode)
         self._options.output_mode = initial_output_mode
+        self._crossfade_enabled = bool(options.crossfade_enabled) if options.crossfade_enabled is not None else False
+        self._crossfade_duration = float(options.crossfade_duration_seconds) if options.crossfade_duration_seconds is not None else 3.0
+        self._loop_enabled = False
+        self._crossfade_pause_enabled = False
         self._status: dict[str, object] = {
             "sessionRunning": False,
+            "activeSoundscape": None,
             "activeCollection": None,
             "currentTrackTitle": "No track active",
             "currentTrackIndex": None,
@@ -78,10 +92,14 @@ class LiveSessionRuntime:
             "volumePercent": playback_snapshot["volume_percent"],
             "playbackMuted": playback_snapshot["muted"],
             "playbackPaused": bool(options.paused),
+            "crossfadeEnabled": self._crossfade_enabled,
+            "crossfadeDurationSeconds": self._crossfade_duration,
+            "loopEnabled": self._loop_enabled,
+            "crossfadePauseEnabled": self._crossfade_pause_enabled,
         }
 
     def start(self) -> dict[str, object]:
-        settings, collections = load_pipeline_config(self._options.config_path)
+        settings, soundscapes = load_pipeline_config(self._options.config_path)
         if self._options.input_device is not None:
             settings.input_device = self._options.input_device
         if self._options.transcription_profile is not None:
@@ -108,7 +126,7 @@ class LiveSessionRuntime:
 
         self._session = PipelineSession(
             settings,
-            collections,
+            soundscapes,
             speech_gate,
             transcriber,
             resolver,
@@ -116,17 +134,28 @@ class LiveSessionRuntime:
             resumed_state=resumed_state,
         )
 
-        if self._options.starting_collection and self._options.starting_collection in {item.collection_id for item in collections}:
-            self._session.state.active_collection_id = self._options.starting_collection
+        starting_soundscape = self._options.starting_soundscape or self._options.starting_collection
+        if starting_soundscape and starting_soundscape in {item.soundscape_id for item in soundscapes}:
+            self._session.state.active_soundscape_id = starting_soundscape
 
         self._audio_source = MicrophoneAudioSource(settings)
         self._status["sessionRunning"] = True
+        self._status["activeSoundscape"] = self._session.state.active_soundscape_id
         self._status["activeCollection"] = self._session.state.active_collection_id
         self._status["pendingTransition"] = self._session.pending_transition_payload()
         self._status["transcriptionProfile"] = settings.transcription_profile
         self._emit(
             "session_ready",
             {
+                "soundscapes": [
+                    {
+                        "soundscape_id": item.soundscape_id,
+                        "name": item.name,
+                        "keywords": item.keywords,
+                        "track_count": len(item.tracks),
+                    }
+                    for item in soundscapes
+                ],
                 "collections": [
                     {
                         "collection_id": item.collection_id,
@@ -134,8 +163,9 @@ class LiveSessionRuntime:
                         "keywords": item.keywords,
                         "track_count": len(item.tracks),
                     }
-                    for item in collections
+                    for item in soundscapes
                 ],
+                "active_soundscape": self._session.state.active_soundscape_id,
                 "active_collection": self._session.state.active_collection_id,
             },
         )
@@ -145,7 +175,7 @@ class LiveSessionRuntime:
 
         self._configure_output_mode(self._options.output_mode, replay_current_track=False)
 
-        if self._options.starting_collection is not None:
+        if starting_soundscape is not None:
             self.skip_track(initial=True)
         if self._status["playbackPaused"]:
             self._apply_pause_state(True)
@@ -171,6 +201,10 @@ class LiveSessionRuntime:
         volume_percent: int | None = None,
         muted: bool | None = None,
         paused: bool | None = None,
+        crossfade_enabled: bool | None = None,
+        crossfade_duration_seconds: float | None = None,
+        loop_enabled: bool | None = None,
+        crossfade_pause_enabled: bool | None = None,
     ) -> dict[str, object]:
         if volume_percent is not None:
             self._playback_controller.set_volume_percent(volume_percent)
@@ -182,6 +216,26 @@ class LiveSessionRuntime:
             self._options.paused = bool(paused)
             self._status["playbackPaused"] = bool(paused)
             self._apply_pause_state(bool(paused))
+        if crossfade_enabled is not None:
+            self._crossfade_enabled = bool(crossfade_enabled)
+            self._status["crossfadeEnabled"] = self._crossfade_enabled
+            if self._player is not None:
+                self._player.crossfade_enabled = self._crossfade_enabled
+        if crossfade_duration_seconds is not None:
+            self._crossfade_duration = max(0.5, min(15.0, float(crossfade_duration_seconds)))
+            self._status["crossfadeDurationSeconds"] = self._crossfade_duration
+            if self._player is not None:
+                self._player.crossfade_duration = self._crossfade_duration
+        if loop_enabled is not None:
+            self._loop_enabled = bool(loop_enabled)
+            self._status["loopEnabled"] = self._loop_enabled
+            if self._player is not None:
+                self._player.loop_enabled = self._loop_enabled
+        if crossfade_pause_enabled is not None:
+            self._crossfade_pause_enabled = bool(crossfade_pause_enabled)
+            self._status["crossfadePauseEnabled"] = self._crossfade_pause_enabled
+            if self._player is not None:
+                self._player.crossfade_pause = self._crossfade_pause_enabled
 
         playback_snapshot = self._playback_controller.snapshot()
         self._status["volumePercent"] = playback_snapshot["volume_percent"]
@@ -192,8 +246,21 @@ class LiveSessionRuntime:
                 "volumePercent": playback_snapshot["volume_percent"],
                 "playbackMuted": playback_snapshot["muted"],
                 "playbackPaused": self._status["playbackPaused"],
+                "crossfadeEnabled": self._status["crossfadeEnabled"],
+                "crossfadeDurationSeconds": self._status["crossfadeDurationSeconds"],
+                "loopEnabled": self._status["loopEnabled"],
+                "crossfadePauseEnabled": self._status["crossfadePauseEnabled"],
             },
         )
+        return self.status_snapshot()
+
+    def seek_track(self, position_seconds: float) -> dict[str, object]:
+        with self._session_lock:
+            if self._session is None:
+                raise RuntimeError("Session is not running")
+        if self._player is not None:
+            self._player.seek(position_seconds)
+        self._emit("track_seeked", {"position_seconds": position_seconds})
         return self.status_snapshot()
 
     def update_session_settings(
@@ -244,6 +311,7 @@ class LiveSessionRuntime:
         self._status["pendingTransition"] = (
             {
                 "keyword": pending_payload.get("keyword"),
+                "targetSoundscape": pending_payload.get("target_soundscape", pending_payload.get("target_collection")),
                 "targetCollection": pending_payload.get("target_collection"),
                 "displayName": pending_payload.get("display_name"),
                 "expiresAtEpoch": pending_payload.get("expires_at_epoch"),
@@ -297,10 +365,85 @@ class LiveSessionRuntime:
             if track is None:
                 raise RuntimeError("No resolved tracks are available for the active collection")
 
-            collection_id = self._session.state.active_collection_id
+            soundscape_id = self._session.state.active_soundscape_id
             track_index = self._session.state.active_track_index
         self._status.update(
             {
+                "activeSoundscape": soundscape_id,
+                "activeCollection": soundscape_id,
+                "currentTrackTitle": track.title,
+                "currentTrackIndex": track_index,
+                "pendingTransition": None,
+            }
+        )
+        with self._session_lock:
+            self._current_track = track
+        self._play_track_on_active_output(track)
+        if self._status["playbackPaused"]:
+            self._apply_pause_state(True)
+        self._emit(
+            "track_started",
+            {
+                "soundscape": soundscape_id,
+                "collection": soundscape_id,
+                "track_index": track_index,
+                "title": track.title,
+                "duration_seconds": track.duration_seconds,
+                "initial": initial,
+            },
+        )
+        return self.status_snapshot()
+
+    def status_snapshot(self) -> dict[str, object]:
+        return dict(self._status)
+
+    def play_track_at_index(self, collection_id: str, track_index: int) -> dict[str, object]:
+        with self._session_lock:
+            if self._session is None:
+                raise RuntimeError("Session is not running")
+            result = self._session.track_at_index(collection_id, track_index)
+            if result is None:
+                raise RuntimeError("Invalid collection or track index")
+            track, resolved_index = result
+        self._status.update(
+            {
+                "activeSoundscape": collection_id,
+                "activeCollection": collection_id,
+                "currentTrackTitle": track.title,
+                "currentTrackIndex": resolved_index,
+                "pendingTransition": None,
+            }
+        )
+        with self._session_lock:
+            self._current_track = track
+        self._play_track_on_active_output(track)
+        if self._status["playbackPaused"]:
+            self._apply_pause_state(True)
+        self._emit(
+            "track_started",
+            {
+                "soundscape": collection_id,
+                "collection": collection_id,
+                "track_index": resolved_index,
+                "title": track.title,
+                "duration_seconds": track.duration_seconds,
+                "initial": False,
+            },
+        )
+        return self.status_snapshot()
+
+    def switch_collection(self, collection_id: str) -> dict[str, object]:
+        with self._session_lock:
+            if self._session is None:
+                raise RuntimeError("Session is not running")
+            self._session.state.active_collection_id = collection_id
+            track = self._session.next_track_for_collection(collection_id)
+            if track is None:
+                raise RuntimeError("No resolved tracks are available for this collection")
+            track_index = self._session.state.active_track_index
+        self._status.update(
+            {
+                "activeSoundscape": collection_id,
                 "activeCollection": collection_id,
                 "currentTrackTitle": track.title,
                 "currentTrackIndex": track_index,
@@ -315,17 +458,15 @@ class LiveSessionRuntime:
         self._emit(
             "track_started",
             {
+                "soundscape": collection_id,
                 "collection": collection_id,
                 "track_index": track_index,
                 "title": track.title,
                 "duration_seconds": track.duration_seconds,
-                "initial": initial,
+                "initial": False,
             },
         )
         return self.status_snapshot()
-
-    def status_snapshot(self) -> dict[str, object]:
-        return dict(self._status)
 
     def approve_transition(self) -> dict[str, object]:
         with self._session_lock:
@@ -374,10 +515,12 @@ class LiveSessionRuntime:
             return
 
         if event.event_type == "keyword_match":
+            self._status["activeSoundscape"] = event.soundscape_id
             self._status["activeCollection"] = event.collection_id
             self._emit(
                 "keyword_match",
                 {
+                    "soundscape": event.soundscape_id,
                     "collection": event.collection_id,
                     "message": event.message,
                 },
@@ -388,16 +531,18 @@ class LiveSessionRuntime:
             pending_payload = self._session.pending_transition_payload() if self._session is not None else None
             self._status["pendingTransition"] = {
                 "keyword": event.keyword,
+                "targetSoundscape": event.soundscape_id,
                 "targetCollection": event.collection_id,
-                "displayName": event.collection_name,
+                "displayName": event.soundscape_name,
                 "expiresAtEpoch": pending_payload.get("expires_at_epoch") if pending_payload is not None else None,
             }
             self._emit(
                 "transition_pending",
                 {
                     "keyword": event.keyword,
+                    "target_soundscape": event.soundscape_id,
                     "target_collection": event.collection_id,
-                    "display_name": event.collection_name,
+                    "display_name": event.soundscape_name,
                     "expires_at_epoch": pending_payload.get("expires_at_epoch") if pending_payload is not None else None,
                 },
             )
@@ -409,6 +554,7 @@ class LiveSessionRuntime:
             return
 
         if event.event_type == "selected_track" and event.track is not None:
+            self._status["activeSoundscape"] = event.soundscape_id
             self._status["activeCollection"] = event.collection_id
             self._status["currentTrackTitle"] = event.track.title
             self._status["currentTrackIndex"] = event.track_index
@@ -419,6 +565,7 @@ class LiveSessionRuntime:
             self._emit(
                 "track_started",
                 {
+                    "soundscape": event.soundscape_id,
                     "collection": event.collection_id,
                     "track_index": event.track_index,
                     "title": event.track.title,
@@ -473,7 +620,12 @@ class LiveSessionRuntime:
             self._status["outputMode"] = "discord"
             self._emit("discord_connected", {"voice_channel_id": self._options.discord_voice_channel_id})
         else:
-            next_player = self._player if self._player is not None else LocalAudioPlayer(playback_controller=self._playback_controller)
+            next_player = self._player if self._player is not None else LocalAudioPlayer(
+                playback_controller=self._playback_controller,
+                crossfade_enabled=self._crossfade_enabled,
+                crossfade_duration_seconds=self._crossfade_duration,
+                on_track_finished=self._handle_output_track_finished,
+            )
             if replay_current_track and current_track is not None:
                 next_player.play(current_track)
 
@@ -498,6 +650,7 @@ class LiveSessionRuntime:
             guild_id=self._options.discord_guild_id,
             voice_channel_id=self._options.discord_voice_channel_id,
             playback_controller=self._playback_controller,
+            on_track_finished=self._handle_output_track_finished,
         )
         bridge.start()
         return bridge
@@ -510,3 +663,13 @@ class LiveSessionRuntime:
 
         if self._player is not None:
             self._player.play(track)
+
+    def _handle_output_track_finished(self, track) -> None:
+        with self._session_lock:
+            if self._session is None or self._current_track is not track:
+                return
+
+        try:
+            self.skip_track()
+        except RuntimeError:
+            return

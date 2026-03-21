@@ -1,4 +1,6 @@
 function FeedWorkspace({ bootstrap, lastError, lastTranscript, settings, state }) {
+  const defaultSoundscape = bootstrap.config.settings.defaultSoundscape || bootstrap.config.settings.default_soundscape || bootstrap.config.settings.default_collection
+
   return (
     <section className="feed-workspace">
       <div className="panel feed-primary-panel">
@@ -15,8 +17,8 @@ function FeedWorkspace({ bootstrap, lastError, lastTranscript, settings, state }
             <strong>{settings.configPath}</strong>
           </div>
           <div>
-            <span className="metric-label">Default collection</span>
-            <strong>{bootstrap.config.settings.default_collection}</strong>
+            <span className="metric-label">Default soundscape</span>
+            <strong>{defaultSoundscape}</strong>
           </div>
           <div>
             <span className="metric-label">Bot route</span>

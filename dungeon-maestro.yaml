@@ -1,60 +1,64 @@
 settings:
   cooldown_seconds: 180
   whisper_model: base
-  default_collection: ambient
   enable_transition_proposals: true
   transition_popup_timeout: 30
   input_device: 1
   transcription_window_seconds: 1
   transcription_stride_seconds: 0.5
   transcription_profile: fast
+  default_soundscape: parlay
+soundscapes:
+  parlay:
+    name: Parlay of Mandibar
+    keywords:
+      - parlay
+      - forum
+    tracks:
+      - source: songclave - hollow knight silksong
+      - source: https://www.youtube.com/watch?v=eX4de4BH5lM
+    playback:
+      mode: sequential_loop
+  Scythera:
+    name: Scythera
+    keywords:
+      - scythera
+    tracks:
+      - source: https://www.youtube.com/watch?v=fFbvV3auWAc
+    playback:
+      mode: sequential_loop
+  Thoraxis:
+    name: Thoraxis
+    keywords:
+      - thoraxis
+    tracks:
+      - source: https://www.youtube.com/watch?v=wXLdWR1HmCA
+    playback:
+      mode: sequential_loop
+  Underhive:
+    name: Underhive
+    keywords:
+      - underhive
+      - hive
+    tracks:
+      - source: https://www.youtube.com/watch?v=s7DA5JCza7A
+      - source: https://www.youtube.com/watch?v=VbpXP3PiUPY
+    playback:
+      mode: sequential_loop
+  Mandibar Conflict:
+    name: Mandibar Conflict
+    keywords:
+      - brood
+    tracks:
+      - source: https://www.youtube.com/watch?v=4wfAVkXxhEw
+    playback:
+      mode: sequential_loop
 collections:
-  ambient:
-    name: Ambient Exploration
-    keywords:
-      - explore
-      - travel
-      - walk
-      - ambient
-    tracks:
-      - source: fantasy exploration ambience
-      - source: forest ambience for tabletop rpg
-    playback:
-      mode: sequential_loop
-  combat:
-    name: Combat
-    keywords:
-      - combat
-      - fight
-      - battle
-      - initiative
-      - roll for initiative
-    tracks:
-      - source: epic combat music dnd
-      - source: Bloodborne Soundtrack full OST
-      - source: intense orchestral battle music
-    playback:
-      mode: sequential_loop
-  tavern:
-    name: Tavern
-    keywords:
-      - tavern
-      - inn
-      - rest
-      - town
-    tracks:
-      - source: medieval tavern music ambience
-    playback:
-      mode: sequential_loop
-  dungeon:
-    name: Dungeon
-    keywords:
-      - dungeon
-      - cave
-      - underground
-      - darkness
-    tracks:
-      - source: dark dungeon ambience no music
-      - source: cavern ambience dark fantasy
-    playback:
-      mode: sequential_loop
+  test-collection:
+    name: Test Collection
+    soundscapes:
+      - parlay
+      - Thoraxis
+      - Scythera
+      - Mandibar Conflict
+      - Underhive

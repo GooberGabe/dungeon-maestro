@@ -13,6 +13,9 @@
   --text: #edf4ff;
   --muted: #9eb3ca;
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+  --icon-sm: 26px;
+  --icon-md: 30px;
+  --icon-lg: 38px;
   font-family: "Spectral", "Palatino Linotype", "Book Antiqua", Georgia, serif;
   background:
     radial-gradient(circle at top left, rgba(45, 95, 147, 0.28), transparent 36%),
@@ -23,6 +26,28 @@
 
 * {
   box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(158, 179, 202, 0.18);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(158, 179, 202, 0.32);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 html,

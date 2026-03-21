@@ -78,26 +78,20 @@ function inferTrackSourceType(source) {
 function validateCollectionEdits(collectionId, payload) {
   const normalizedId = normalizeTextInput(collectionId)
   if (!normalizedId) {
-    throw new Error('Collection id is required for saving edits')
+    throw new Error('Soundscape id is required for saving edits')
   }
 
   const name = normalizeTextInput(payload?.name)
   if (!name) {
-    throw new Error('Collection name cannot be empty')
+    throw new Error('Soundscape name cannot be empty')
   }
 
   if (!Array.isArray(payload?.keywords)) {
-    throw new Error('Collection keywords must be an array')
+    throw new Error('Soundscape keywords must be an array')
   }
-  const keywords = payload.keywords.map((keyword) => normalizeTextInput(keyword))
-  if (keywords.length === 0) {
-    throw new Error('Collection must include at least one keyword')
-  }
+  const keywords = payload.keywords.map((keyword) => normalizeTextInput(keyword)).filter(Boolean)
   const seenKeywords = new Set()
   for (const keyword of keywords) {
-    if (!keyword) {
-      throw new Error('Keywords cannot be blank')
-    }
     const dedupeKey = keyword.toLowerCase()
     if (seenKeywords.has(dedupeKey)) {
       throw new Error(`Duplicate keyword: ${keyword}`)
@@ -106,11 +100,11 @@ function validateCollectionEdits(collectionId, payload) {
   }
 
   if (!Array.isArray(payload?.tracks)) {
-    throw new Error('Collection tracks must be an array')
+    throw new Error('Soundscape tracks must be an array')
   }
   const tracks = payload.tracks.map((track) => normalizeTextInput(track))
   if (tracks.length === 0) {
-    throw new Error('Collection must include at least one track source')
+    throw new Error('Soundscape must include at least one track source')
   }
   const seenTracks = new Set()
   for (const track of tracks) {
@@ -128,6 +122,18 @@ function validateCollectionEdits(collectionId, payload) {
   return { collectionId: normalizedId, name, keywords, tracks }
 }
 
+function validateSoundscapeEdits(soundscapeId, payload) {
+  return validateCollectionEdits(soundscapeId, payload)
+}
+
+function validateSessionCollectionName(name) {
+  const normalizedName = normalizeTextInput(name)
+  if (!normalizedName) {
+    throw new Error('Collection name cannot be empty')
+  }
+  return normalizedName
+}
+
 function pythonExecutable() {
   const candidate = path.join(require('./state.cjs').workspaceRoot, '.venv', 'Scripts', 'python.exe')
   return fs.existsSync(candidate) ? candidate : 'python'
@@ -140,5 +146,7 @@ module.exports = {
   normalizeTrackPreviewPayload,
   inferTrackSourceType,
   validateCollectionEdits,
+  validateSessionCollectionName,
+  validateSoundscapeEdits,
   pythonExecutable,
 }

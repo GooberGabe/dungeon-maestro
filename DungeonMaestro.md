@@ -6,12 +6,12 @@
 
 ## 1. Overview
 
-DungeonMaestro is a desktop application that listens to a DM's local microphone, transcribes speech in real time, matches detected keywords to user-defined audio collections, and streams music into a Discord voice channel. The DM retains explicit approval control over every collection switch, preventing false triggers mid-session.
+DungeonMaestro is a desktop application that listens to a DM's local microphone, transcribes speech in real time, matches detected keywords to user-defined audio soundscapes, and streams music into a Discord voice channel. The DM retains explicit approval control over every soundscape switch, preventing false triggers mid-session.
 
 The application has two distinct UI modes:
 
-- **Prep Dashboard** — full-featured collection and track manager used before and between sessions.
-- **Game HUD** — a compact, always-on-top window used during live sessions with three core functions: display current track, skip track, and approve/dismiss detected collection transitions.
+- **Prep Dashboard** — full-featured soundscape and track manager used before and between sessions.
+- **Game HUD** — a compact, always-on-top window used during live sessions with three core functions: display current track, skip track, and approve/dismiss detected soundscape transitions.
 
 ---
 
@@ -58,7 +58,7 @@ Mic Input
                              └─► [if match AND not in cooldown]
                                     └─► Emit 'transition_pending' to HUD
                                            └─► [DM approves]
-                                                  └─► Collection Switch
+                                                  └─► Soundscape Switch
                                                   └─► Cooldown timer starts
                                                   └─► yt-dlp resolves next track
                                                   └─► ffmpeg → discord.py → Discord
@@ -79,8 +79,8 @@ Mic Input
 | Track Resolution | yt-dlp | Resolves search terms, single URLs, and playlist URLs to audio streams |
 | Audio Encoding | ffmpeg | PCM → Opus pipe into discord.py voice client |
 | Discord Integration | discord.py + PyNaCl | Joins voice channel, receives ffmpeg audio stream, plays to channel |
-| Config Format | YAML | Human-editable, shareable collection definitions |
-| Session State | JSON | Active collection, track index, cooldown, session log |
+| Config Format | YAML | Human-editable, shareable soundscape definitions |
+| Session State | JSON | Active soundscape, track index, cooldown, session log |
 | IPC Transport | WebSocket (localhost) | Sidecar ↔ Electron message passing |
 | Packaging | electron-builder + PyInstaller | Bundles Electron shell and Python sidecar into single installer |
 | Auto-Update | electron-updater | GitHub Releases–integrated update checking, download, and installation |
@@ -96,13 +96,13 @@ Mic Input
 settings:
   cooldown_seconds: 180          # Time after approval before re-detecting transitions
   whisper_model: base            # tiny | base | small
-  default_collection: ambient    # Collection to play on session start
+  default_collection: ambient    # Soundscape to play on session start
   transition_popup_timeout: 30   # Seconds before HUD popup auto-dismisses
 
 collections:
   <collection_id>:
     name: "Display Name"         # Human-readable label shown in HUD/Dashboard
-    keywords:                    # Words that trigger this collection
+    keywords:                    # Words that trigger this soundscape
       - keyword1
       - keyword2
     tracks:
@@ -171,11 +171,11 @@ The `source` field accepts three input types, all handled identically by yt-dlp:
 
 ### 4.4 Keyword Matching Rules
 
-Keyword matching uses simple case-insensitive string matching against the rolling transcription window. The following priority rules apply when multiple collections could match:
+Keyword matching uses simple case-insensitive string matching against the rolling transcription window. The following priority rules apply when multiple soundscapes could match:
 
 1. Exact phrase match beats partial word match.
 2. Longer keyword phrases beat shorter ones ("roll for initiative" beats "initiative").
-3. If the active collection is already the matched collection, the match is silently ignored.
+3. If the active soundscape is already the matched soundscape, the match is silently ignored.
 4. If the system is within the cooldown window, all matches are silently dropped — Whisper processing is suspended entirely during this period.
 
 ---
@@ -234,7 +234,7 @@ The resolved stream URL is passed to ffmpeg, which encodes it as Opus and pipes 
 
 ### 6.1 Approval Gate
 
-No collection switch happens automatically. When the keyword matcher detects a potential transition, it emits a `transition_pending` event to the Electron frontend via WebSocket. The HUD expands to display the detected collection and a single approve button. If the DM does not interact within `transition_popup_timeout` seconds, the popup is dismissed silently and the current collection continues.
+No soundscape switch happens automatically. When the keyword matcher detects a potential transition, it emits a `transition_pending` event to the Electron frontend via WebSocket. The HUD expands to display the detected soundscape and a single approve button. If the DM does not interact within `transition_popup_timeout` seconds, the popup is dismissed silently and the current soundscape continues.
 
 ### 6.2 Cooldown
 
@@ -258,7 +258,7 @@ States: IDLE → LISTENING → PENDING_APPROVAL → COOLDOWN → LISTENING
 IDLE:             Session not started. No processing.
 LISTENING:        VAD + Whisper active. Checking keywords.
 PENDING_APPROVAL: Keyword matched. HUD popup shown. Whisper paused.
-COOLDOWN:         DM approved. Collection switching. Whisper suspended.
+COOLDOWN:         DM approved. Soundscape switching. Whisper suspended.
                   Returns to LISTENING after cooldown_seconds.
 ```
 
@@ -266,7 +266,7 @@ COOLDOWN:         DM approved. Collection switching. Whisper suspended.
 
 ## 7. Session Persistence
 
-Session state is written to a JSON file on every track transition and collection switch. On application launch, if a session file is detected, the user is offered the option to resume.
+Session state is written to a JSON file on every track transition and soundscape switch. On application launch, if a session file is detected, the user is offered the option to resume.
 
 ```json
 {
@@ -292,10 +292,10 @@ Full-size window. Entry point on application launch. Accessible mid-session via 
 
 Key views:
 
-- **Collection List** — all defined collections with keyword tags, track count, edit/delete actions.
-- **Collection Editor** — name, keywords (tag input), track list. Each track shows resolved title (fetched from yt-dlp on add), source string, and drag handle for reordering. Supports add by URL or search term.
-- **Settings Panel** — cooldown duration, Whisper model selection, Discord bot token, default collection, popup timeout.
-- **Session Launcher** — select starting collection, start session (spawns HUD, minimizes dashboard, starts sidecar).
+- **Soundscape List** — all defined soundscapes with keyword tags, track count, edit/delete actions.
+- **Soundscape Editor** — name, keywords (tag input), track list. Each track shows resolved title (fetched from yt-dlp on add), source string, and drag handle for reordering. Supports add by URL or search term.
+- **Settings Panel** — cooldown duration, Whisper model selection, Discord bot token, default soundscape, popup timeout.
+- **Session Launcher** — select starting soundscape, start session (spawns HUD, minimizes dashboard, starts sidecar).
 
 ### 8.2 Game HUD
 
@@ -381,7 +381,7 @@ All messages between the Python sidecar and Electron are JSON objects transmitte
 - sounddevice mic capture → ring buffer
 - Silero VAD gate
 - faster-whisper transcription (resident model)
-- Hardcoded keyword → collection mapping
+- Hardcoded keyword → soundscape mapping
 - yt-dlp track resolution (search term + URL)
 - ffmpeg audio pipe to stdout
 - Console output: detected keywords, resolved track titles, state transitions
@@ -393,8 +393,8 @@ All messages between the Python sidecar and Electron are JSON objects transmitte
 **Goal:** Full config system replacing all hardcoded values.
 
 - YAML schema implementation with validation
-- Collection loader: parse all source types, expand playlists at session start
-- Keyword matcher with priority rules (exact, phrase length, active collection guard)
+- Soundscape loader: parse all source types, expand playlists at session start
+- Keyword matcher with priority rules (exact, phrase length, active soundscape guard)
 - Transition manager with cooldown logic
 - Session state persistence (JSON read/write on every transition)
 - Session resume on relaunch
@@ -426,14 +426,14 @@ All messages between the Python sidecar and Electron are JSON objects transmitte
 
 ### Phase 5 — Prep Dashboard
 
-**Goal:** Full collection management UI.
+**Goal:** Full soundscape management UI.
 
-- Collection list view with keyword tags and track counts
-- Collection editor: name, keywords, track list with add/reorder/remove
+- Soundscape list view with keyword tags and track counts
+- Soundscape editor: name, keywords, track list with add/reorder/remove
 - Track add flow: input URL or search term, preview resolved title via yt-dlp
 - Ambiguous URL detection (`watch?v=` + `list=` prompt)
 - Settings panel: cooldown, Whisper model, Discord token, defaults
-- Session launcher: starting collection picker, Start Session button
+- Session launcher: starting soundscape picker, Start Session button
 - YAML read/write from dashboard (load on open, save on change)
 
 **Deliverable:** Complete application. Full prep-to-session workflow.
@@ -498,12 +498,12 @@ All messages between the Python sidecar and Electron are JSON objects transmitte
 
 ## 12. Future Considerations (Post-v1)
 
-- **Config sharing:** Export/import collection sets as standalone YAML files. Natural for the TTRPG community to share campaign audio configs on forums or Reddit.
-- **Per-collection playback modes:** shuffle, weighted shuffle, single-track loop (sequential loop is the only v1 mode).
-- **Configurable cooldown per collection:** combat might warrant a shorter cooldown than ambient.
+- **Config sharing:** Export/import soundscape sets as standalone YAML files. Natural for the TTRPG community to share campaign audio configs on forums or Reddit.
+- **Per-soundscape playback modes:** shuffle, weighted shuffle, single-track loop (sequential loop is the only v1 mode).
+- **Configurable cooldown per soundscape:** combat might warrant a shorter cooldown than ambient.
 - **Push-to-talk trigger mode:** optional alternative to always-listening for DMs who prefer explicit control.
-- **Transition crossfade:** fade out current track while fading in the new collection's first track.
-- **Volume control in HUD:** per-collection volume normalization.
+- **Transition crossfade:** fade out current track while fading in the new soundscape's first track.
+- **Volume control in HUD:** per-soundscape volume normalization.
 
 ---
 

@@ -9,7 +9,7 @@ from typing import Protocol
 import numpy as np
 
 from .matching import KeywordMatcher
-from .models import Collection, PendingTransition, PipelineSettings, PipelineState, ResolvedTrack
+from .models import PendingTransition, PipelineSettings, PipelineState, ResolvedTrack, Soundscape
 from .persistence import SessionStateStore
 from .ring_buffer import AudioRingBuffer
 
@@ -39,12 +39,20 @@ class PipelineEvent:
     keyword: str | None = None
     collection_name: str | None = None
 
+    @property
+    def soundscape_id(self) -> str | None:
+        return self.collection_id
+
+    @property
+    def soundscape_name(self) -> str | None:
+        return self.collection_name
+
 
 class PipelineSession:
     def __init__(
         self,
         settings: PipelineSettings,
-        collections: list[Collection],
+        soundscapes: list[Soundscape],
         speech_gate: SpeechGate,
         transcriber: Transcriber,
         track_resolver: TrackResolver,
@@ -52,17 +60,17 @@ class PipelineSession:
         resumed_state: dict[str, object] | None = None,
     ) -> None:
         self._settings = settings
-        self._collections = collections
-        self._collections_by_id = {collection.collection_id: collection for collection in collections}
+        self._soundscapes = soundscapes
+        self._soundscapes_by_id = {soundscape.soundscape_id: soundscape for soundscape in soundscapes}
         self._speech_gate = speech_gate
         self._transcriber = transcriber
         self._track_resolver = track_resolver
         self._state_store = state_store
-        self._matcher = KeywordMatcher(collections)
-        default_collection_id = settings.default_collection if settings.default_collection in self._collections_by_id else collections[0].collection_id
+        self._matcher = KeywordMatcher(soundscapes)
+        default_soundscape_id = settings.default_soundscape if settings.default_soundscape in self._soundscapes_by_id else soundscapes[0].soundscape_id
         self._state = PipelineState(
             session_id=datetime.now().isoformat(timespec="seconds"),
-            active_collection_id=default_collection_id,
+            active_soundscape_id=default_soundscape_id,
         )
         self._ring_buffer = AudioRingBuffer(settings.sample_rate_hz * settings.ring_buffer_seconds)
         self._chunks_since_transcription = 0
@@ -131,23 +139,24 @@ class PipelineSession:
             return None
         return {
             "keyword": pending.keyword,
+            "target_soundscape": pending.soundscape_id,
             "target_collection": pending.collection_id,
-            "display_name": pending.collection_name,
+            "display_name": pending.soundscape_name,
             "expires_at_epoch": pending.expires_at_epoch,
         }
 
     def warm_resolve_tracks(self) -> list[PipelineEvent]:
         events: list[PipelineEvent] = []
-        for collection in self._collections:
+        for soundscape in self._soundscapes:
             resolved: list[ResolvedTrack] = []
-            for track in collection.tracks:
+            for track in soundscape.tracks:
                 try:
                     item = self._track_resolver.resolve(track.source)
                 except Exception as exc:
                     events.append(
                         PipelineEvent(
                             event_type="resolve_error",
-                            message=f"[{collection.collection_id}] failed to resolve {track.source!r}: {exc}",
+                            message=f"[{soundscape.soundscape_id}] failed to resolve {track.source!r}: {exc}",
                         )
                     )
                     continue
@@ -156,37 +165,61 @@ class PipelineSession:
                     PipelineEvent(
                         event_type="track_resolved",
                         message=(
-                            f"[{collection.collection_id}] {item.title}"
+                            f"[{soundscape.soundscape_id}] {item.title}"
                             + (f" ({item.duration_seconds:.0f}s)" if item.duration_seconds else "")
                         ),
                     )
                 )
-            self._state.resolved_tracks[collection.collection_id] = resolved
+            self._state.resolved_tracks[soundscape.soundscape_id] = resolved
         self._persist_state()
         return events
 
-    def next_track_for_collection(self, collection_id: str) -> ResolvedTrack | None:
-        selection = self._select_next_track(collection_id)
+    def next_track_for_soundscape(self, soundscape_id: str) -> ResolvedTrack | None:
+        selection = self._select_next_track(soundscape_id)
         if selection is None:
             return None
 
         track, track_index = selection
         self._append_log(
             "track_selected",
-            collection=collection_id,
+            soundscape=soundscape_id,
+            collection=soundscape_id,
             track_index=track_index,
             title=track.title,
         )
         self._persist_state()
         return track
 
-    def _select_next_track(self, collection_id: str) -> tuple[ResolvedTrack, int] | None:
-        resolved = self._state.resolved_tracks.get(collection_id, [])
+    def next_track_for_collection(self, collection_id: str) -> ResolvedTrack | None:
+        return self.next_track_for_soundscape(collection_id)
+
+    def track_at_soundscape_index(self, soundscape_id: str, track_index: int) -> tuple[ResolvedTrack, int] | None:
+        resolved = self._state.resolved_tracks.get(soundscape_id, [])
+        if not resolved or track_index < 0 or track_index >= len(resolved):
+            return None
+        self._state.active_soundscape_id = soundscape_id
+        self._state.active_track_index = track_index
+        self._state.next_track_index_by_soundscape[soundscape_id] = (track_index + 1) % len(resolved)
+        self._append_log(
+            "track_selected",
+            soundscape=soundscape_id,
+            collection=soundscape_id,
+            track_index=track_index,
+            title=resolved[track_index].title,
+        )
+        self._persist_state()
+        return resolved[track_index], track_index
+
+    def track_at_index(self, collection_id: str, track_index: int) -> tuple[ResolvedTrack, int] | None:
+        return self.track_at_soundscape_index(collection_id, track_index)
+
+    def _select_next_track(self, soundscape_id: str) -> tuple[ResolvedTrack, int] | None:
+        resolved = self._state.resolved_tracks.get(soundscape_id, [])
         if not resolved:
             return None
 
-        current_index = self._state.next_track_index_by_collection.get(collection_id, 0) % len(resolved)
-        self._state.next_track_index_by_collection[collection_id] = (current_index + 1) % len(resolved)
+        current_index = self._state.next_track_index_by_soundscape.get(soundscape_id, 0) % len(resolved)
+        self._state.next_track_index_by_soundscape[soundscape_id] = (current_index + 1) % len(resolved)
         self._state.active_track_index = current_index
         return resolved[current_index], current_index
 
@@ -229,33 +262,34 @@ class PipelineSession:
 
         events: list[PipelineEvent] = []
         self._state.pending_transition = None
-        self._state.active_collection_id = pending.collection_id
+        self._state.active_soundscape_id = pending.soundscape_id
         self._append_log(
             "collection_switch",
             keyword=pending.keyword,
+            soundscape=pending.soundscape_id,
             collection=pending.collection_id,
             cooldown_seconds=self._settings.cooldown_seconds,
         )
         events.append(
             PipelineEvent(
                 event_type="transition_approved",
-                message=f"approved transition to {pending.collection_name}",
+                message=f"approved transition to {pending.soundscape_name}",
                 collection_id=pending.collection_id,
                 keyword=pending.keyword,
-                collection_name=pending.collection_name,
+                collection_name=pending.soundscape_name,
             )
         )
         events.append(
             PipelineEvent(
                 event_type="keyword_match",
-                message=f"keyword={pending.keyword!r} -> collection={pending.collection_name}",
+                message=f"keyword={pending.keyword!r} -> soundscape={pending.soundscape_name}",
                 collection_id=pending.collection_id,
                 keyword=pending.keyword,
-                collection_name=pending.collection_name,
+                collection_name=pending.soundscape_name,
             )
         )
 
-        selection = self._select_next_track(pending.collection_id)
+        selection = self._select_next_track(pending.soundscape_id)
         if selection is not None:
             resolved, track_index = selection
             events.append(
@@ -269,6 +303,7 @@ class PipelineSession:
             )
             self._append_log(
                 "track_selected",
+                soundscape=pending.soundscape_id,
                 collection=pending.collection_id,
                 track_index=track_index,
                 title=resolved.title,
@@ -299,21 +334,21 @@ class PipelineSession:
         if isinstance(session_id, str) and session_id.strip():
             self._state.session_id = session_id
 
-        active_collection = payload.get("active_collection")
-        if isinstance(active_collection, str) and active_collection in self._collections_by_id:
-            self._state.active_collection_id = active_collection
+        active_soundscape = payload.get("active_soundscape", payload.get("active_collection"))
+        if isinstance(active_soundscape, str) and active_soundscape in self._soundscapes_by_id:
+            self._state.active_soundscape_id = active_soundscape
 
         track_index = payload.get("track_index")
         if isinstance(track_index, int) and track_index >= 0:
             self._state.active_track_index = track_index
 
-        next_indexes = payload.get("next_track_index_by_collection")
+        next_indexes = payload.get("next_track_index_by_soundscape", payload.get("next_track_index_by_collection"))
         if isinstance(next_indexes, dict):
             restored_indexes: dict[str, int] = {}
-            for collection_id, index in next_indexes.items():
-                if collection_id in self._collections_by_id and isinstance(index, int) and index >= 0:
-                    restored_indexes[collection_id] = index
-            self._state.next_track_index_by_collection = restored_indexes
+            for soundscape_id, index in next_indexes.items():
+                if soundscape_id in self._soundscapes_by_id and isinstance(index, int) and index >= 0:
+                    restored_indexes[soundscape_id] = index
+            self._state.next_track_index_by_soundscape = restored_indexes
 
         cooldown_remaining = payload.get("cooldown_remaining")
         if isinstance(cooldown_remaining, int) and cooldown_remaining > 0:
@@ -351,6 +386,7 @@ class PipelineSession:
         self._append_log(
             "transition_dismissed",
             keyword=pending.keyword,
+            soundscape=pending.soundscape_id,
             collection=pending.collection_id,
             reason=reason,
         )
@@ -358,10 +394,10 @@ class PipelineSession:
         return [
             PipelineEvent(
                 event_type="transition_dismissed",
-                message=f"dismissed transition to {pending.collection_name} ({reason})",
+                message=f"dismissed transition to {pending.soundscape_name} ({reason})",
                 collection_id=pending.collection_id,
                 keyword=pending.keyword,
-                collection_name=pending.collection_name,
+                collection_name=pending.soundscape_name,
             )
         ]
 
@@ -424,29 +460,30 @@ class PipelineSession:
             self._persist_state()
             return events
 
-        match = self._matcher.match(transcript, self._state.active_collection_id)
+        match = self._matcher.match(transcript, self._state.active_soundscape_id)
         if match is None:
             return events
 
         self._state.pending_transition = PendingTransition(
-            collection_id=match.collection_id,
-            collection_name=match.collection_name,
+            soundscape_id=match.soundscape_id,
+            soundscape_name=match.soundscape_name,
             keyword=match.keyword,
             expires_at_epoch=time.time() + self._settings.transition_popup_timeout,
         )
         self._append_log(
             "transition_pending",
             keyword=match.keyword,
+            soundscape=match.soundscape_id,
             collection=match.collection_id,
-            display_name=match.collection_name,
+            display_name=match.soundscape_name,
         )
         events.append(
             PipelineEvent(
                 event_type="transition_pending",
-                message=f"keyword={match.keyword!r} -> collection={match.collection_name}",
+                message=f"keyword={match.keyword!r} -> soundscape={match.soundscape_name}",
                 collection_id=match.collection_id,
                 keyword=match.keyword,
-                collection_name=match.collection_name,
+                collection_name=match.soundscape_name,
             )
         )
         self._persist_state()

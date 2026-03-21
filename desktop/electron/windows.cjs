@@ -194,7 +194,11 @@ function emitState(getBootstrapData) {
 }
 
 function collectionName(collectionId) {
-  return appConfig.collections.find((collection) => collection.collectionId === collectionId)?.name || collectionId
+  return appConfig.collections.find((collection) => collection.collectionId === collectionId || collection.soundscapeId === collectionId)?.name || collectionId
+}
+
+function soundscapeName(soundscapeId) {
+  return collectionName(soundscapeId)
 }
 
 module.exports = {
@@ -208,4 +212,5 @@ module.exports = {
   syncHudWindowSize,
   emitState,
   collectionName,
+  soundscapeName,
 }

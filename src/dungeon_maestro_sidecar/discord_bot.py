@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import CancelledError as FutureCancelledError
 from concurrent.futures import TimeoutError as FutureTimeoutError
 import threading
+from typing import Callable
 
 from .models import ResolvedTrack
 from .playback import FfmpegStdoutStreamer, PlaybackController
@@ -29,6 +30,7 @@ class DiscordPcmAudioSource(DiscordAudioSourceBase):
         playback_controller: PlaybackController | None = None,
     ) -> None:
         _load_discord_module()
+        self.track = track
         self._streamer = FfmpegStdoutStreamer(ffmpeg_path)
         self._playback_controller = playback_controller or PlaybackController()
         self._process, self._ytdlp_process = self._streamer._start_processes(
@@ -38,6 +40,7 @@ class DiscordPcmAudioSource(DiscordAudioSourceBase):
         self._buffer = b""
         self._eof = False
         self._closed = False
+        self._suppress_finished_callback = False
 
     def read(self) -> bytes:
         if self._closed:
@@ -105,6 +108,7 @@ class DiscordVoiceBridge:
         guild_id: int | None = None,
         ffmpeg_path: str | None = None,
         playback_controller: PlaybackController | None = None,
+        on_track_finished: Callable[[ResolvedTrack], None] | None = None,
     ) -> None:
         if not token.strip():
             raise RuntimeError("Discord token is required")
@@ -114,12 +118,15 @@ class DiscordVoiceBridge:
         self._guild_id = guild_id
         self._ffmpeg_path = ffmpeg_path
         self._playback_controller = playback_controller or PlaybackController()
+        self._on_track_finished = on_track_finished
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client = None
         self._thread: threading.Thread | None = None
         self._ready_event = threading.Event()
         self._startup_error: BaseException | None = None
         self._playback_error: BaseException | None = None
+        self._active_source: DiscordPcmAudioSource | None = None
+        self._state_lock = threading.Lock()
 
     def start(self, timeout_seconds: float = 30.0) -> None:
         if self._thread is not None:
@@ -239,7 +246,12 @@ class DiscordVoiceBridge:
             ffmpeg_path=self._ffmpeg_path,
             playback_controller=self._playback_controller,
         )
-        if voice_client.is_playing():
+        with self._state_lock:
+            previous_source = self._active_source
+            self._active_source = source
+        if voice_client.is_playing() or voice_client.is_paused():
+            if previous_source is not None:
+                previous_source._suppress_finished_callback = True
             voice_client.stop()
         voice_client.play(source, after=lambda exc: self._after_playback(source, exc))
 
@@ -257,8 +269,13 @@ class DiscordVoiceBridge:
         try:
             source.cleanup()
         finally:
+            with self._state_lock:
+                if self._active_source is source:
+                    self._active_source = None
             if exc:
                 self._playback_error = exc
+            elif not source._suppress_finished_callback and self._on_track_finished is not None:
+                self._on_track_finished(source.track)
 
     async def _shutdown(self) -> None:
         if self._client is None:
@@ -267,7 +284,10 @@ class DiscordVoiceBridge:
         for guild in list(self._client.guilds):
             voice_client = guild.voice_client
             if voice_client is not None:
-                if voice_client.is_playing():
+                if voice_client.is_playing() or voice_client.is_paused():
+                    with self._state_lock:
+                        if self._active_source is not None:
+                            self._active_source._suppress_finished_callback = True
                     voice_client.stop()
                 await voice_client.disconnect(force=True)
 

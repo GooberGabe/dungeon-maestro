@@ -19,9 +19,13 @@ const sessionState = {
   discordStatus: 'Bot token not connected',
   sessionRunning: false,
   startupInProgress: false,
+  activeSoundscape: null,
   activeCollection: null,
   currentTrackTitle: 'No track active',
   currentTrackIndex: null,
+  currentTrackDurationSeconds: null,
+  currentTrackStartedAt: null,
+  currentTrackPositionSeconds: 0,
   lastTranscript: '',
   lastError: '',
   pendingTransition: null,
@@ -30,6 +34,10 @@ const sessionState = {
   volumePercent: 100,
   playbackMuted: false,
   playbackPaused: false,
+  crossfadeEnabled: false,
+  crossfadeDurationSeconds: 3.0,
+  loopEnabled: false,
+  crossfadePauseEnabled: false,
   discordTargets: [],
   discordBotUser: null,
   discordDiscoveryInFlight: false,
@@ -37,6 +45,7 @@ const sessionState = {
 
 const appConfig = {
   settings: {},
+  soundscapes: [],
   collections: [],
 }
 

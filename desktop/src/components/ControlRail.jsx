@@ -1,8 +1,9 @@
+import { useMemo, useState } from 'react'
+
 function ControlRail({
   botTokenDraft,
   chooseDiscordGuild,
   chooseDiscordVoiceChannel,
-  collections,
   discordTargets,
   handleOutputModeChange,
   isSessionStarting,
@@ -15,27 +16,36 @@ function ControlRail({
   sessionStatusClass,
   sessionStatusLabel,
   setBotTokenDraft,
-  setStartingCollection,
   settings,
-  startingCollection,
   startSession,
   endSession,
   state,
 }) {
+  const [isEditingBotToken, setIsEditingBotToken] = useState(false)
+  const displayedBotToken = useMemo(() => {
+    if (isEditingBotToken || !botTokenDraft) {
+      return botTokenDraft
+    }
+    return botTokenDraft.replace(/./g, '•')
+  }, [botTokenDraft, isEditingBotToken])
+
   return (
     <aside className="control-rail">
       <div className="sidebar-frame">
-        <section className="panel output-panel">
-          <div className="panel-header compact">
+        <section className="panel session-panel launch-panel">
+          <div className="panel-header">
             <div>
-              <p className="eyebrow">Audio</p>
-              <h2>Output Route</h2>
+              <p className="eyebrow">Session</p>
+              <h2>Launch Controls</h2>
             </div>
+            <span className={`status-chip ${sessionStatusClass}`}>
+              {sessionStatusLabel}
+            </span>
           </div>
 
           <div className="settings-stack">
             <div className="settings-row">
-              <label className="settings-name" htmlFor="output-mode">Destination</label>
+              <label className="settings-name" htmlFor="output-mode">Output route</label>
               <select
                 id="output-mode"
                 className="select-field compact-select-field"
@@ -48,39 +58,6 @@ function ControlRail({
               </select>
             </div>
           </div>
-
-          <p className="status-copy">
-            {outputMode === 'discord'
-              ? 'Session playback will route only to the selected Discord voice channel.'
-              : 'Session playback will stay local and skip Discord connection attempts.'}
-          </p>
-        </section>
-
-        <section className="panel session-panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Session</p>
-              <h2>Launch Controls</h2>
-            </div>
-            <span className={`status-chip ${sessionStatusClass}`}>
-              {sessionStatusLabel}
-            </span>
-          </div>
-
-          <label className="field-label" htmlFor="starting-collection">Starting collection</label>
-          <select
-            id="starting-collection"
-            className="select-field"
-            value={startingCollection}
-            onChange={(event) => setStartingCollection(event.target.value)}
-          >
-            <option value="">None (wait to start playback)</option>
-            {collections.map((collection) => (
-              <option key={collection.collectionId} value={collection.collectionId}>
-                {collection.name}
-              </option>
-            ))}
-          </select>
 
           <div className="button-row">
             <button className="primary-button" onClick={startSession} disabled={state.sessionRunning || isSessionBusy}>Start Session</button>
@@ -104,8 +81,11 @@ function ControlRail({
             id="bot-token"
             className="token-field"
             rows={4}
-            value={botTokenDraft}
+            value={displayedBotToken}
+            onFocus={() => setIsEditingBotToken(true)}
+            onBlur={() => setIsEditingBotToken(false)}
             onChange={(event) => setBotTokenDraft(event.target.value)}
+            readOnly={!isEditingBotToken}
             placeholder="Paste the bot token once. The dashboard will own the rest of the Discord wiring."
           />
           <div className="button-row">
