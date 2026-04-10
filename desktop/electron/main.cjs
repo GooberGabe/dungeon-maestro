@@ -741,6 +741,14 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  try {
+    if (sessionState.sessionRunning || sessionState.startupInProgress) {
+      void sendSidecarCommand('end_session', {}).catch(() => {})
+    }
+  } catch {
+    // Ignore sidecar errors on shutdown.
+  }
+  cleanupSidecar()
   if (process.platform !== 'darwin') {
     app.quit()
   }

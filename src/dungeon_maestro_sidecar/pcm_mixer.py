@@ -32,7 +32,8 @@ class PcmTrack:
                         self.done = True
                         return b'\x00' * frame_size
             else:
-                chunk = audioop.mul(chunk, 2, self.gain)
+                if self.gain != 1.0:
+                    chunk = audioop.mul(chunk, 2, self.gain)
             return chunk
         except StopIteration:
             self.done = True
@@ -42,6 +43,7 @@ class PcmMixer(threading.Thread):
     def __init__(self, frame_size=3840, sample_rate=48000, channels=2):
         super().__init__()
         self.frame_size = frame_size
+        self._silence = b'\x00' * frame_size
         self.tracks = []
         # Buffer a bit to absorb ffmpeg jitter but avoid unbounded growth.
         self.output_queue = Queue(maxsize=50)
@@ -73,15 +75,14 @@ class PcmMixer(threading.Thread):
             if not active_tracks:
                 time.sleep(0.01)
                 continue
-            mixed = b'\x00' * self.frame_size
-            for track in active_tracks:
+            if len(active_tracks) == 1:
+                track = active_tracks[0]
                 try:
-                    chunk = track.next_chunk(self.frame_size)
+                    mixed = track.next_chunk(self.frame_size)
                 except Exception as exc:
                     print(f"[mixer] track error: {exc}")
                     track.done = True
-                    chunk = b'\x00' * self.frame_size
-                mixed = audioop.add(mixed, chunk, 2)
+                    mixed = self._silence
                 if track.done:
                     with self.lock:
                         if track in self.tracks:
@@ -91,6 +92,25 @@ class PcmMixer(threading.Thread):
                             track.on_finished()
                         except Exception:
                             pass
+            else:
+                mixed = self._silence
+                for track in active_tracks:
+                    try:
+                        chunk = track.next_chunk(self.frame_size)
+                    except Exception as exc:
+                        print(f"[mixer] track error: {exc}")
+                        track.done = True
+                        chunk = self._silence
+                    mixed = audioop.add(mixed, chunk, 2)
+                    if track.done:
+                        with self.lock:
+                            if track in self.tracks:
+                                self.tracks.remove(track)
+                        if track.on_finished is not None:
+                            try:
+                                track.on_finished()
+                            except Exception:
+                                pass
             # Block when buffer is full; this naturally paces production to consumption.
             self.output_queue.put(mixed)
 
