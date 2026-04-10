@@ -221,11 +221,15 @@ class LiveSessionRuntime:
             self._status["crossfadeEnabled"] = self._crossfade_enabled
             if self._player is not None:
                 self._player.crossfade_enabled = self._crossfade_enabled
+            if self._discord_bridge is not None:
+                self._discord_bridge.set_crossfade_enabled(self._crossfade_enabled)
         if crossfade_duration_seconds is not None:
             self._crossfade_duration = max(0.5, min(15.0, float(crossfade_duration_seconds)))
             self._status["crossfadeDurationSeconds"] = self._crossfade_duration
             if self._player is not None:
                 self._player.crossfade_duration = self._crossfade_duration
+            if self._discord_bridge is not None:
+                self._discord_bridge.set_crossfade_duration(self._crossfade_duration)
         if loop_enabled is not None:
             self._loop_enabled = bool(loop_enabled)
             self._status["loopEnabled"] = self._loop_enabled
@@ -651,6 +655,8 @@ class LiveSessionRuntime:
             voice_channel_id=self._options.discord_voice_channel_id,
             playback_controller=self._playback_controller,
             on_track_finished=self._handle_output_track_finished,
+            crossfade_enabled=self._crossfade_enabled,
+            crossfade_duration=self._crossfade_duration,
         )
         bridge.start()
         return bridge

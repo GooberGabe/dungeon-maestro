@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import audioop
-import os
-from pathlib import Path
-from shutil import which
-import subprocess
-import sys
 import threading
 import time
 from typing import Callable
 from typing import BinaryIO
-from urllib.parse import urlparse
 
 from .models import ResolvedTrack
+from .pcm_mixer import PcmMixer
+from .track_buffer import TrackBuffer
+from .ffmpeg_streamer import FfmpegStdoutStreamer, discover_ffmpeg
 
 
 class PlaybackController:
@@ -56,237 +53,7 @@ class PlaybackController:
 
 
 def _discover_ffmpeg(ffmpeg_path: str | None) -> str | None:
-    if ffmpeg_path:
-        return ffmpeg_path
-
-    discovered = which("ffmpeg")
-    if discovered:
-        return discovered
-
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    program_files = os.environ.get("ProgramFiles")
-    program_files_x86 = os.environ.get("ProgramFiles(x86)")
-
-    candidates = [
-        Path(local_app_data) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe"
-        if local_app_data
-        else None,
-        Path(program_files) / "FFmpeg" / "bin" / "ffmpeg.exe" if program_files else None,
-        Path(program_files_x86) / "FFmpeg" / "bin" / "ffmpeg.exe" if program_files_x86 else None,
-    ]
-
-    for candidate in candidates:
-        if candidate and candidate.is_file():
-            return str(candidate)
-
-    return None
-
-
-class FfmpegStdoutStreamer:
-    def __init__(self, ffmpeg_path: str | None = None) -> None:
-        self._ffmpeg_path = _discover_ffmpeg(ffmpeg_path)
-        if self._ffmpeg_path is None:
-            raise RuntimeError("ffmpeg is required for stdout audio streaming but was not found on PATH.")
-
-    def stream(self, track: ResolvedTrack, output: BinaryIO, max_bytes: int | None = None) -> int:
-        process, ytdlp_process = self._start_processes(track, self._build_ffmpeg_pcm_command())
-
-        total_written = 0
-        hit_limit = False
-
-        try:
-            assert process.stdout is not None
-            while True:
-                read_size = 4096
-                if max_bytes is not None:
-                    remaining = max_bytes - total_written
-                    if remaining <= 0:
-                        hit_limit = True
-                        break
-                    read_size = min(read_size, remaining)
-
-                chunk = process.stdout.read(read_size)
-                if not chunk:
-                    break
-
-                output.write(chunk)
-                output.flush()
-                total_written += len(chunk)
-
-                if max_bytes is not None and total_written >= max_bytes:
-                    hit_limit = True
-                    break
-        finally:
-            stderr_output, ytdlp_stderr = self._finalize_processes(process, ytdlp_process, hit_limit)
-
-        if process.returncode not in (0, None) and not hit_limit:
-            message = stderr_output.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(message or f"ffmpeg exited with code {process.returncode}")
-
-        if ytdlp_process.returncode not in (0, None) and not hit_limit:
-            message = ytdlp_stderr.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(message or f"yt-dlp exited with code {ytdlp_process.returncode}")
-
-        return total_written
-
-    def write_wav(self, track: ResolvedTrack, output_path: str | Path, max_seconds: float | None = None) -> None:
-        expected_truncation = max_seconds is not None and max_seconds > 0
-        ffmpeg_command = [
-            self._ffmpeg_path,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            "pipe:0",
-            "-vn",
-        ]
-        if max_seconds is not None and max_seconds > 0:
-            ffmpeg_command.extend(["-t", str(max_seconds)])
-        ffmpeg_command.extend([
-            "-acodec",
-            "pcm_s16le",
-            "-ac",
-            "2",
-            "-ar",
-            "48000",
-            "-y",
-            str(output_path),
-        ])
-
-        process, ytdlp_process = self._start_processes(track, ffmpeg_command)
-        stderr_output, ytdlp_stderr = self._finalize_processes(process, ytdlp_process, hit_limit=False)
-
-        if process.returncode not in (0, None):
-            message = stderr_output.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(message or f"ffmpeg exited with code {process.returncode}")
-
-        if ytdlp_process.returncode not in (0, None) and not expected_truncation:
-            message = ytdlp_stderr.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(message or f"yt-dlp exited with code {ytdlp_process.returncode}")
-
-    def _build_ytdlp_command(self, track: ResolvedTrack) -> list[str]:
-        query = track.webpage_url or track.source
-        is_search_term = not query.startswith("http")
-        if is_search_term:
-            query = f"ytsearch1:{query}"
-
-        if self._is_youtube_query(query):
-            return [
-                sys.executable,
-                "-m",
-                "yt_dlp",
-                "--quiet",
-                "--no-warnings",
-                "--extractor-args",
-                "youtube:player_client=android",
-                "--format",
-                "18",
-                "--output",
-                "-",
-                query,
-            ]
-
-        return [
-            sys.executable,
-            "-m",
-            "yt_dlp",
-            "--quiet",
-            "--no-warnings",
-            "--format",
-            "bestaudio/best",
-            "--output",
-            "-",
-            query,
-        ]
-
-    def _build_ffmpeg_pcm_command(self, seek_offset_seconds: float = 0.0) -> list[str]:
-        cmd = [
-            self._ffmpeg_path,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            "pipe:0",
-        ]
-        if seek_offset_seconds > 0:
-            cmd.extend(["-ss", str(seek_offset_seconds)])
-        cmd.extend([
-            "-vn",
-            "-f",
-            "s16le",
-            "-acodec",
-            "pcm_s16le",
-            "-ac",
-            "2",
-            "-ar",
-            "48000",
-            "pipe:1",
-        ])
-        return cmd
-
-    def _start_processes(
-        self,
-        track: ResolvedTrack,
-        ffmpeg_command: list[str],
-    ) -> tuple[subprocess.Popen, subprocess.Popen]:
-        ytdlp_command = self._build_ytdlp_command(track)
-        ytdlp_process = subprocess.Popen(
-            ytdlp_command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-        process = subprocess.Popen(
-            ffmpeg_command,
-            stdin=ytdlp_process.stdout,
-            stdout=subprocess.PIPE if ffmpeg_command[-1] == "pipe:1" else None,
-            stderr=subprocess.PIPE,
-        )
-
-        if ytdlp_process.stdout is not None:
-            ytdlp_process.stdout.close()
-
-        return process, ytdlp_process
-
-    def _finalize_processes(
-        self,
-        ffmpeg_process: subprocess.Popen,
-        ytdlp_process: subprocess.Popen,
-        hit_limit: bool,
-    ) -> tuple[bytes, bytes]:
-        if hit_limit and ffmpeg_process.poll() is None:
-            ffmpeg_process.terminate()
-
-        if hit_limit and ytdlp_process.poll() is None:
-            ytdlp_process.terminate()
-
-        try:
-            _, ffmpeg_stderr = ffmpeg_process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            ffmpeg_process.kill()
-            _, ffmpeg_stderr = ffmpeg_process.communicate()
-
-        try:
-            ytdlp_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            ytdlp_process.kill()
-            ytdlp_process.wait()
-
-        ytdlp_stderr = b""
-        if ytdlp_process.stderr is not None:
-            ytdlp_stderr = ytdlp_process.stderr.read()
-
-        return ffmpeg_stderr, ytdlp_stderr
-
-    def _is_youtube_query(self, query: str) -> bool:
-        if query.startswith("ytsearch"):
-            return True
-
-        if not query.startswith("http"):
-            return True
-
-        hostname = urlparse(query).netloc.lower()
-        return "youtube.com" in hostname or "youtu.be" in hostname
+    return discover_ffmpeg(ffmpeg_path)
 
 
 class _FadeEnvelope:
@@ -583,3 +350,204 @@ class LocalAudioPlayer:
 
         if should_notify_finished and self._on_track_finished is not None:
             self._on_track_finished(track)
+
+
+class LocalMixerPlayer:
+    def __init__(
+        self,
+        ffmpeg_path: str | None = None,
+        output_device: str | int | None = None,
+        playback_controller: PlaybackController | None = None,
+        crossfade_enabled: bool = False,
+        crossfade_duration_seconds: float = 3.0,
+        on_track_finished: Callable[[ResolvedTrack], None] | None = None,
+    ) -> None:
+        self._ffmpeg_path = _discover_ffmpeg(ffmpeg_path)
+        if self._ffmpeg_path is None:
+            raise RuntimeError("ffmpeg is required for local mixer playback but was not found on PATH.")
+        self._output_device = output_device
+        self._playback_controller = playback_controller or PlaybackController()
+        self._crossfade_enabled = crossfade_enabled
+        self._crossfade_duration = max(0.5, min(15.0, crossfade_duration_seconds))
+        self._on_track_finished = on_track_finished
+        self._mixer = PcmMixer()
+        self._output_thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._playback_allowed = threading.Event()
+        self._playback_allowed.set()
+        self._lock = threading.Lock()
+        self._current_track_title: str | None = None
+        self._current_track: ResolvedTrack | None = None
+        self._loop_enabled: bool = False
+        self._crossfade_pause: bool = False
+        self._pause_fade: _FadeEnvelope | None = None
+        self._last_error: str | None = None
+        self._last_mixer_track = None
+
+    @property
+    def crossfade_enabled(self) -> bool:
+        return self._crossfade_enabled
+
+    @crossfade_enabled.setter
+    def crossfade_enabled(self, value: bool) -> None:
+        self._crossfade_enabled = bool(value)
+
+    @property
+    def crossfade_duration(self) -> float:
+        return self._crossfade_duration
+
+    @crossfade_duration.setter
+    def crossfade_duration(self, value: float) -> None:
+        self._crossfade_duration = max(0.5, min(15.0, float(value)))
+
+    @property
+    def loop_enabled(self) -> bool:
+        return self._loop_enabled
+
+    @loop_enabled.setter
+    def loop_enabled(self, value: bool) -> None:
+        self._loop_enabled = bool(value)
+
+    @property
+    def crossfade_pause(self) -> bool:
+        return self._crossfade_pause
+
+    @crossfade_pause.setter
+    def crossfade_pause(self, value: bool) -> None:
+        self._crossfade_pause = bool(value)
+
+    @property
+    def current_track_title(self) -> str | None:
+        return self._current_track_title
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    def play(self, track: ResolvedTrack) -> None:
+        fade_in = self._crossfade_duration if self._crossfade_enabled else None
+        fade_out = self._crossfade_duration if self._crossfade_enabled else None
+
+        buffer = TrackBuffer(
+            track,
+            prebuffer_frames=100,
+            ffmpeg_path=self._ffmpeg_path,
+        )
+        buffer.start()
+        buffer.wait_ready(timeout=5.0)
+
+        def buffer_source():
+            while not buffer.finished or buffer.buffered_frames > 0:
+                yield buffer.read_frame(timeout=0.5)
+
+        def _on_finished() -> None:
+            buffer.stop()
+            if self._loop_enabled and self._current_track is track:
+                self.play(track)
+            elif self._on_track_finished is not None:
+                self._on_track_finished(track)
+
+        new_track = self._mixer.add_track(buffer_source(), fade_in=fade_in, on_finished=_on_finished)
+        if self._last_mixer_track is not None:
+            self._mixer.remove_track(self._last_mixer_track, fade_out=fade_out)
+        if not self._crossfade_enabled and hasattr(self, '_last_track_buffer') and self._last_track_buffer is not None:
+            self._last_track_buffer.stop()
+        self._last_mixer_track = new_track
+        self._last_track_buffer = buffer
+        with self._lock:
+            self._current_track = track
+            self._current_track_title = track.title
+
+        self._start_output_if_needed()
+
+    def seek(self, position_seconds: float) -> None:
+        with self._lock:
+            track = self._current_track
+        if track is None:
+            return
+        self.stop()
+        buffer = TrackBuffer(
+            track,
+            prebuffer_frames=100,
+            ffmpeg_path=self._ffmpeg_path,
+            seek_offset_seconds=max(0.0, position_seconds),
+        )
+        buffer.start()
+        buffer.wait_ready(timeout=5.0)
+
+        def buffer_source():
+            while not buffer.finished or buffer.buffered_frames > 0:
+                yield buffer.read_frame(timeout=0.5)
+
+        new_track = self._mixer.add_track(buffer_source(), fade_in=None, on_finished=buffer.stop)
+        self._last_mixer_track = new_track
+        self._last_track_buffer = buffer
+        self._start_output_if_needed()
+
+    def pause(self) -> None:
+        if self._crossfade_pause and self._crossfade_duration > 0:
+            self._pause_fade = _FadeEnvelope(1.0, 0.0, self._crossfade_duration)
+        else:
+            self._playback_allowed.clear()
+
+    def resume(self) -> None:
+        self._playback_allowed.set()
+        if self._crossfade_pause and self._crossfade_duration > 0:
+            self._pause_fade = _FadeEnvelope(0.0, 1.0, self._crossfade_duration)
+        else:
+            self._pause_fade = None
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        self._playback_allowed.set()
+        if self._output_thread is not None and self._output_thread.is_alive():
+            self._output_thread.join(timeout=3)
+        self._output_thread = None
+        self._mixer.stop()
+        if self._mixer.is_alive():
+            self._mixer.join(timeout=2)
+        self._mixer = PcmMixer()
+        if hasattr(self, '_last_track_buffer') and self._last_track_buffer is not None:
+            self._last_track_buffer.stop()
+            self._last_track_buffer = None
+        with self._lock:
+            self._current_track = None
+            self._current_track_title = None
+            self._pause_fade = None
+        self._stop_event = threading.Event()
+
+    def _start_output_if_needed(self) -> None:
+        if not self._mixer.is_alive():
+            self._mixer.start()
+        if self._output_thread is None or not self._output_thread.is_alive():
+            self._output_thread = threading.Thread(target=self._output_worker, daemon=True)
+            self._output_thread.start()
+
+    def _output_worker(self) -> None:
+        try:
+            sd = __import__("sounddevice")
+        except ImportError as exc:
+            self._last_error = f"sounddevice is required for local playback: {exc}"
+            return
+        try:
+            with sd.RawOutputStream(
+                samplerate=48_000,
+                channels=2,
+                dtype="int16",
+                device=self._output_device,
+            ) as output_stream:
+                while not self._stop_event.is_set():
+                    chunk = self._mixer.get_output(timeout=0.25)
+                    if not self._playback_allowed.is_set():
+                        continue
+                    pcm = self._playback_controller.apply_gain(chunk)
+                    pf = self._pause_fade
+                    if pf is not None:
+                        pcm = pf.apply(pcm)
+                        if pf.finished:
+                            self._pause_fade = None
+                            if pf._end <= 0.0:
+                                self._playback_allowed.clear()
+                    output_stream.write(pcm)
+        except Exception as exc:
+            self._last_error = str(exc)

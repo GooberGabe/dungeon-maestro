@@ -7,58 +7,51 @@ settings:
   transcription_window_seconds: 1
   transcription_stride_seconds: 0.5
   transcription_profile: fast
-  default_soundscape: parlay
+  default_soundscape: '2810215659'
 soundscapes:
-  parlay:
-    name: Parlay of Mandibar
-    keywords:
-      - parlay
-      - forum
+  '1074876644':
+    name: Mandibar Combat
+    keywords: []
     tracks:
-      - source: songclave - hollow knight silksong
-      - source: https://www.youtube.com/watch?v=eX4de4BH5lM
+      - source: Hollow Knight Nosk
+      - source: Decisive Battle Silksong
+      - source: Silksong Widow
     playback:
       mode: sequential_loop
-  Scythera:
-    name: Scythera
-    keywords:
-      - scythera
-    tracks:
-      - source: https://www.youtube.com/watch?v=fFbvV3auWAc
-    playback:
-      mode: sequential_loop
-  Thoraxis:
+  '2810215659':
     name: Thoraxis
-    keywords:
-      - thoraxis
+    keywords: []
     tracks:
       - source: https://www.youtube.com/watch?v=wXLdWR1HmCA
     playback:
       mode: sequential_loop
-  Underhive:
-    name: Underhive
-    keywords:
-      - underhive
-      - hive
+  '3944325949':
+    name: Mandibar Travel
+    keywords: []
     tracks:
-      - source: https://www.youtube.com/watch?v=s7DA5JCza7A
-      - source: https://www.youtube.com/watch?v=VbpXP3PiUPY
+      - source: https://www.youtube.com/watch?v=0wC0ZLbBPDY
     playback:
       mode: sequential_loop
-  Mandibar Conflict:
-    name: Mandibar Conflict
-    keywords:
-      - brood
+  '4070793741':
+    name: Hexos
+    keywords: []
     tracks:
-      - source: https://www.youtube.com/watch?v=4wfAVkXxhEw
+      - source: https://www.youtube.com/watch?v=s7DA5JCza7A
+    playback:
+      mode: sequential_loop
+  '4149047932':
+    name: Parlay - Tribunal Forum
+    keywords: []
+    tracks:
+      - source: https://www.youtube.com/watch?v=eX4de4BH5lM
     playback:
       mode: sequential_loop
 collections:
-  test-collection:
-    name: Test Collection
+  parlay-of-mandibar:
+    name: Parlay of Mandibar
     soundscapes:
-      - parlay
-      - Thoraxis
-      - Scythera
-      - Mandibar Conflict
-      - Underhive
+      - '3944325949'
+      - '2810215659'
+      - '4070793741'
+      - '4149047932'
+      - '1074876644'

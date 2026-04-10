@@ -204,7 +204,13 @@ function deleteCollectionConfig(collectionId) {
 }
 
 function createSessionCollection(name) {
-  const normalizedName = validateSessionCollectionName(name)
+  let normalizedName
+  try {
+    normalizedName = validateSessionCollectionName(name)
+  } catch (e) {
+    // Fallback: if name is empty or invalid, use a default name with timestamp
+    normalizedName = `Session Collection ${new Date().toISOString().replace(/[:.]/g, '-')}`
+  }
   const { configPath, parsed } = loadParsedConfig()
   normalizeConfigDocument(parsed)
   const collectionsMap = getCollectionsMap(parsed)

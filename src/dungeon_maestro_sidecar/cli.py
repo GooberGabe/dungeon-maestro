@@ -252,7 +252,8 @@ def main() -> int:
     discord_bridge: DiscordVoiceBridge | None = None
     if not args.no_auto_play:
         try:
-            player = LocalAudioPlayer()
+            from .playback import LocalMixerPlayer
+            player = LocalMixerPlayer()
             print("[startup] automatic local playback enabled", file=log_stream)
         except RuntimeError as exc:
             print(f"[startup] automatic playback unavailable: {exc}", file=log_stream)

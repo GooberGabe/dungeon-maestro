@@ -180,8 +180,8 @@ def _parse_settings(raw_settings: object) -> PipelineSettings:
 
 
 def _parse_soundscapes(raw_soundscapes: object) -> list[Soundscape]:
-    if not isinstance(raw_soundscapes, dict) or not raw_soundscapes:
-        raise ConfigError("soundscapes must be a non-empty mapping")
+    if not isinstance(raw_soundscapes, dict):
+        raise ConfigError("soundscapes must be a mapping")
 
     soundscapes: list[Soundscape] = []
     for raw_soundscape_id, raw_soundscape in raw_soundscapes.items():

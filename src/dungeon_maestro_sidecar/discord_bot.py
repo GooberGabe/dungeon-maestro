@@ -8,18 +8,15 @@ from typing import Callable
 
 from .models import ResolvedTrack
 from .playback import FfmpegStdoutStreamer, PlaybackController
+from .discord_pcm_mixer_source import DiscordPcmMixerSource
+from .pcm_mixer import PcmMixer
+from .track_buffer import TrackBuffer
+from .discord_audio_base import DiscordAudioSourceBase
 
 try:
     import discord as _discord_base
 except ImportError:
     _discord_base = None
-
-
-if _discord_base is not None:
-    DiscordAudioSourceBase = _discord_base.AudioSource
-else:
-    class DiscordAudioSourceBase:
-        pass
 
 
 class DiscordPcmAudioSource(DiscordAudioSourceBase):
@@ -42,9 +39,19 @@ class DiscordPcmAudioSource(DiscordAudioSourceBase):
         self._closed = False
         self._suppress_finished_callback = False
 
+    @property
+    def playback_position_seconds(self) -> float:
+        # 3840 bytes per frame = 20ms at 48kHz stereo (2 bytes/sample * 2 channels * 48000 Hz * 0.02s)
+        # self._frames_sent is the number of frames sent
+        return getattr(self, '_frames_sent', 0) * 0.02
+
     def read(self) -> bytes:
         if self._closed:
             return b""
+
+        # Track frames sent for playback position
+        if not hasattr(self, '_frames_sent'):
+            self._frames_sent = 0
 
         if self._eof and not self._buffer:
             self.cleanup()
@@ -70,10 +77,12 @@ class DiscordPcmAudioSource(DiscordAudioSourceBase):
             frame = self._buffer + (b"\x00" * (frame_size - len(self._buffer)))
             self._buffer = b""
             self._eof = True
+            self._frames_sent += 1
             return self._playback_controller.apply_gain(frame)
 
         frame = self._buffer[:frame_size]
         self._buffer = self._buffer[frame_size:]
+        self._frames_sent += 1
         return self._playback_controller.apply_gain(frame)
 
     def is_opus(self) -> bool:
@@ -109,6 +118,8 @@ class DiscordVoiceBridge:
         ffmpeg_path: str | None = None,
         playback_controller: PlaybackController | None = None,
         on_track_finished: Callable[[ResolvedTrack], None] | None = None,
+        crossfade_enabled: bool = False,
+        crossfade_duration: float = 3.0,
     ) -> None:
         if not token.strip():
             raise RuntimeError("Discord token is required")
@@ -119,6 +130,8 @@ class DiscordVoiceBridge:
         self._ffmpeg_path = ffmpeg_path
         self._playback_controller = playback_controller or PlaybackController()
         self._on_track_finished = on_track_finished
+        self._crossfade_enabled = bool(crossfade_enabled)
+        self._crossfade_duration = max(0.5, min(15.0, float(crossfade_duration)))
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client = None
         self._thread: threading.Thread | None = None
@@ -165,6 +178,12 @@ class DiscordVoiceBridge:
             self._client = None
             self._ready_event.clear()
             self._startup_error = None
+
+    def set_crossfade_enabled(self, enabled: bool) -> None:
+        self._crossfade_enabled = bool(enabled)
+
+    def set_crossfade_duration(self, duration_seconds: float) -> None:
+        self._crossfade_duration = max(0.5, min(15.0, float(duration_seconds)))
 
     def _thread_main(self) -> None:
         loop = asyncio.new_event_loop()
@@ -241,19 +260,57 @@ class DiscordVoiceBridge:
 
     async def _play_track(self, track: ResolvedTrack) -> None:
         voice_client = await self._connect_voice_channel()
-        source = DiscordPcmAudioSource(
-            track,
-            ffmpeg_path=self._ffmpeg_path,
-            playback_controller=self._playback_controller,
-        )
+        crossfade_enabled = self._crossfade_enabled
+        crossfade_duration = self._crossfade_duration
+        print(f"[discord] switch_track title={track.title} crossfade={crossfade_enabled} duration={crossfade_duration}")
+        # Use a persistent mixer for Discord output
+        if not hasattr(self, '_pcm_mixer') or self._pcm_mixer is None or not self._pcm_mixer.is_alive():
+            self._pcm_mixer = PcmMixer()
+            self._discord_source = DiscordPcmMixerSource(self._pcm_mixer, playback_controller=self._playback_controller)
+            print("[discord] created new PCM mixer")
+        # Keep previous track playing until the new track has produced audio.
         with self._state_lock:
             previous_source = self._active_source
-            self._active_source = source
-        if voice_client.is_playing() or voice_client.is_paused():
-            if previous_source is not None:
-                previous_source._suppress_finished_callback = True
-            voice_client.stop()
-        voice_client.play(source, after=lambda exc: self._after_playback(source, exc))
+            self._active_source = self._discord_source
+        previous_track = getattr(self, '_last_mixer_track', None)
+        # Predecode into a buffer so switching does not gap.
+        new_buffer = TrackBuffer(
+            track,
+            prebuffer_frames=100,
+            ffmpeg_path=self._ffmpeg_path,
+        )
+        new_buffer.start()
+        new_buffer.wait_ready(timeout=5.0)
+
+        def buffer_source():
+            while not new_buffer.finished or new_buffer.buffered_frames > 0:
+                yield new_buffer.read_frame(timeout=0.5)
+
+        def _on_track_finished() -> None:
+            new_buffer.stop()
+
+        fade_in = crossfade_duration if crossfade_enabled else None
+        new_track = self._pcm_mixer.add_track(buffer_source(), fade_in=fade_in, on_finished=_on_track_finished)
+        # Start mixer thread if not running
+        self._discord_source.start()
+        if not (voice_client.is_playing() or voice_client.is_paused()):
+            voice_client.play(self._discord_source, after=lambda exc: self._after_playback(self._discord_source, exc))
+            print("[discord] voice_client.play started")
+        # Track the last added mixer track for future transitions
+        self._last_mixer_track = new_track
+        previous_buffer = getattr(self, '_last_track_buffer', None)
+        if previous_track is not None:
+            if crossfade_enabled:
+                fade_out = crossfade_duration
+                self._pcm_mixer.remove_track(previous_track, fade_out=fade_out)
+                print("[discord] requested mixer fade out")
+            else:
+                self._pcm_mixer.remove_track(previous_track, fade_out=None)
+                print("[discord] removed previous track")
+            if not crossfade_enabled and previous_buffer is not None:
+                previous_buffer.stop()
+        self._last_track_buffer = new_buffer
+        print(f"[discord] active_tracks={len(self._pcm_mixer.tracks)}")
 
     async def _pause_playback(self) -> None:
         voice_client = await self._connect_voice_channel()

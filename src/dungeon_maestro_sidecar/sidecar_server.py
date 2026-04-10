@@ -281,6 +281,11 @@ class SidecarServer:
             self._last_status["volumePercent"] = payload.get("volumePercent", self._last_status["volumePercent"])
             self._last_status["playbackMuted"] = payload.get("playbackMuted", self._last_status["playbackMuted"])
             self._last_status["playbackPaused"] = payload.get("playbackPaused", self._last_status["playbackPaused"])
+            self._last_status["crossfadeEnabled"] = payload.get("crossfadeEnabled", self._last_status["crossfadeEnabled"])
+            self._last_status["crossfadeDurationSeconds"] = payload.get(
+                "crossfadeDurationSeconds",
+                self._last_status["crossfadeDurationSeconds"],
+            )
             self._last_status["loopEnabled"] = payload.get("loopEnabled", self._last_status["loopEnabled"])
             self._last_status["crossfadePauseEnabled"] = payload.get("crossfadePauseEnabled", self._last_status["crossfadePauseEnabled"])
         elif event_name == "session_settings_updated":
