@@ -25,6 +25,8 @@ function startSidecarProcess(emitState, handleSidecarMessage) {
       env: {
         ...process.env,
         PYTHONUNBUFFERED: '1',
+        PYTHONUTF8: '1',
+        PYTHONIOENCODING: 'utf-8',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     }

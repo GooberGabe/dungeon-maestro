@@ -336,10 +336,15 @@ class LocalAudioPlayer:
                         message = ytdlp_stderr.decode("utf-8", errors="replace").strip()
                         self._last_error = message or f"yt-dlp exited with code {ytdlp_process.returncode}"
 
-            if hit_stop or playback_error or not self._loop_enabled:
+            # Loop logic fix: if looping is enabled and playback ended naturally, restart from beginning
+            if hit_stop or playback_error:
                 break
-            current_seek = 0.0
-            fade_envelope = None
+            if self._loop_enabled:
+                current_seek = 0.0
+                fade_envelope = None
+                continue
+            else:
+                break
 
         should_notify_finished = not hit_stop and not playback_error and not self._loop_enabled
         with self._lock:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import CancelledError as FutureCancelledError
 from concurrent.futures import TimeoutError as FutureTimeoutError
+import time
 import threading
 from typing import Callable
 
@@ -140,6 +141,8 @@ class DiscordVoiceBridge:
         self._playback_error: BaseException | None = None
         self._active_source: DiscordPcmAudioSource | None = None
         self._state_lock = threading.Lock()
+        self._last_presence_title: str | None = None
+        self._last_presence_at = 0.0
 
     def start(self, timeout_seconds: float = 30.0) -> None:
         if self._thread is not None:
@@ -260,6 +263,7 @@ class DiscordVoiceBridge:
 
     async def _play_track(self, track: ResolvedTrack) -> None:
         voice_client = await self._connect_voice_channel()
+        await self._update_presence(track)
         crossfade_enabled = self._crossfade_enabled
         crossfade_duration = self._crossfade_duration
         print(f"[discord] switch_track title={track.title} crossfade={crossfade_enabled} duration={crossfade_duration}")
@@ -288,6 +292,8 @@ class DiscordVoiceBridge:
 
         def _on_track_finished() -> None:
             new_buffer.stop()
+            if self._on_track_finished is not None:
+                self._on_track_finished(track)
 
         fade_in = crossfade_duration if crossfade_enabled else None
         new_track = self._pcm_mixer.add_track(buffer_source(), fade_in=fade_in, on_finished=_on_track_finished)
@@ -338,6 +344,8 @@ class DiscordVoiceBridge:
         if self._client is None:
             return
 
+        await self._update_presence(None)
+
         for guild in list(self._client.guilds):
             voice_client = guild.voice_client
             if voice_client is not None:
@@ -349,6 +357,33 @@ class DiscordVoiceBridge:
                 await voice_client.disconnect(force=True)
 
         await self._client.close()
+
+    async def _update_presence(self, track: ResolvedTrack | None) -> None:
+        if self._client is None:
+            return
+
+        now = time.monotonic()
+        if now - self._last_presence_at < 1.0 and track is not None:
+            return
+
+        discord = _load_discord_module()
+        activity = None
+        title = None
+        if track is not None:
+            title = (track.title or track.source or "").strip() or "Unknown track"
+            if len(title) > 128:
+                title = f"{title[:125]}..."
+            activity = discord.Activity(
+                type=discord.ActivityType.listening,
+                name=f"Now playing: {title}",
+            )
+
+        try:
+            await self._client.change_presence(activity=activity)
+            self._last_presence_title = title
+            self._last_presence_at = now
+        except Exception as exc:
+            print(f"[discord] presence update failed: {exc}")
 
 
 def _load_discord_module():

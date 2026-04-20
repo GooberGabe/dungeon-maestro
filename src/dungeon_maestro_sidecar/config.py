@@ -69,6 +69,7 @@ def default_soundscapes() -> list[Soundscape]:
 
 
 def default_collections() -> list[Soundscape]:
+    # Legacy helper: collections used to be soundscapes in the config.
     return default_soundscapes()
 
 
@@ -99,11 +100,13 @@ def load_pipeline_config(config_path: str | Path) -> tuple[PipelineSettings, lis
 
 
 def _raw_soundscapes(document: dict[str, object]) -> object:
+    # Sidecar only understands soundscapes. Collections are a UI grouping concept.
     raw_soundscapes = document.get("soundscapes")
     if raw_soundscapes is not None:
         return raw_soundscapes
 
     raw_collections = document.get("collections")
+    # Legacy config shape: collections contained full soundscape definitions.
     if _looks_like_legacy_soundscapes(raw_collections):
         return raw_collections
 

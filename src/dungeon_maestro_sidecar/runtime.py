@@ -141,6 +141,7 @@ class LiveSessionRuntime:
         self._audio_source = MicrophoneAudioSource(settings)
         self._status["sessionRunning"] = True
         self._status["activeSoundscape"] = self._session.state.active_soundscape_id
+        # Legacy: collection ids mirror soundscape ids in the sidecar.
         self._status["activeCollection"] = self._session.state.active_collection_id
         self._status["pendingTransition"] = self._session.pending_transition_payload()
         self._status["transcriptionProfile"] = settings.transcription_profile
@@ -172,6 +173,8 @@ class LiveSessionRuntime:
 
         for event in self._session.warm_resolve_tracks():
             self._emit("resolve_event", {"event_type": event.event_type, "message": event.message})
+
+        self._session.start_background_resolve(self._session.state.active_soundscape_id)
 
         self._configure_output_mode(self._options.output_mode, replay_current_track=False)
 
@@ -383,6 +386,7 @@ class LiveSessionRuntime:
         with self._session_lock:
             self._current_track = track
         self._play_track_on_active_output(track)
+        self._start_background_resolve(soundscape_id)
         if self._status["playbackPaused"]:
             self._apply_pause_state(True)
         self._emit(
@@ -421,6 +425,7 @@ class LiveSessionRuntime:
         with self._session_lock:
             self._current_track = track
         self._play_track_on_active_output(track)
+        self._start_background_resolve(collection_id)
         if self._status["playbackPaused"]:
             self._apply_pause_state(True)
         self._emit(
@@ -457,6 +462,7 @@ class LiveSessionRuntime:
         with self._session_lock:
             self._current_track = track
         self._play_track_on_active_output(track)
+        self._start_background_resolve(collection_id)
         if self._status["playbackPaused"]:
             self._apply_pause_state(True)
         self._emit(
@@ -566,6 +572,7 @@ class LiveSessionRuntime:
             with self._session_lock:
                 self._current_track = event.track
             self._play_track_on_active_output(event.track)
+            self._start_background_resolve(event.soundscape_id)
             self._emit(
                 "track_started",
                 {
@@ -669,6 +676,11 @@ class LiveSessionRuntime:
 
         if self._player is not None:
             self._player.play(track)
+
+    def _start_background_resolve(self, soundscape_id: str | None) -> None:
+        if self._session is None:
+            return
+        self._session.start_background_resolve(soundscape_id)
 
     def _handle_output_track_finished(self, track) -> None:
         with self._session_lock:

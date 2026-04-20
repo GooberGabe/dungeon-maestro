@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+import threading
 import time
 from typing import Protocol
 
@@ -79,8 +81,14 @@ class PipelineSession:
         self._transcriber_generation = 0
         self._pending_transcription_request: tuple[int, int, np.ndarray] | None = None
         self._transcription_future: Future[tuple[int, int, str]] | None = None
+        self._resolve_lock = threading.Lock()
+        self._resolve_cv = threading.Condition(self._resolve_lock)
+        self._resolve_queue: deque[str] = deque()
+        self._resolve_worker: threading.Thread | None = None
+        self._resolve_stop = threading.Event()
         if resumed_state is not None:
             self._restore_state(resumed_state)
+        self._initialize_resolve_state()
         self._persist_state()
 
     @property
@@ -97,8 +105,24 @@ class PipelineSession:
         self._pending_transcription_request = None
 
     def close(self) -> None:
+        self._resolve_stop.set()
+        with self._resolve_lock:
+            self._resolve_cv.notify_all()
+        if self._resolve_worker is not None:
+            self._resolve_worker.join(timeout=2)
+        self._resolve_worker = None
         self._pending_transcription_request = None
         self._transcription_executor.shutdown(wait=False, cancel_futures=True)
+
+    def start_background_resolve(self, soundscape_id: str | None) -> None:
+        if soundscape_id is not None and soundscape_id not in self._soundscapes_by_id:
+            return
+        self._ensure_resolve_worker()
+        with self._resolve_lock:
+            if soundscape_id is not None and self._has_unresolved(soundscape_id):
+                if soundscape_id not in self._resolve_queue:
+                    self._resolve_queue.append(soundscape_id)
+            self._resolve_cv.notify_all()
 
     def update_runtime_settings(
         self,
@@ -147,39 +171,36 @@ class PipelineSession:
 
     def warm_resolve_tracks(self) -> list[PipelineEvent]:
         events: list[PipelineEvent] = []
+        self._initialize_resolve_state()
         for soundscape in self._soundscapes:
-            resolved: list[ResolvedTrack] = []
-            for track in soundscape.tracks:
-                try:
-                    item = self._track_resolver.resolve(track.source)
-                except Exception as exc:
-                    events.append(
-                        PipelineEvent(
-                            event_type="resolve_error",
-                            message=f"[{soundscape.soundscape_id}] failed to resolve {track.source!r}: {exc}",
-                        )
-                    )
-                    continue
-                resolved.append(item)
+            if not soundscape.tracks:
+                continue
+            resolved = self._resolve_track_at_index(soundscape.soundscape_id, 0)
+            if resolved is None:
+                source = soundscape.tracks[0].source
                 events.append(
                     PipelineEvent(
-                        event_type="track_resolved",
-                        message=(
-                            f"[{soundscape.soundscape_id}] {item.title}"
-                            + (f" ({item.duration_seconds:.0f}s)" if item.duration_seconds else "")
-                        ),
+                        event_type="resolve_error",
+                        message=f"[{soundscape.soundscape_id}] failed to resolve {source!r}",
                     )
                 )
-            self._state.resolved_tracks[soundscape.soundscape_id] = resolved
+                continue
+            events.append(
+                PipelineEvent(
+                    event_type="track_resolved",
+                    message=(
+                        f"[{soundscape.soundscape_id}] {resolved.title}"
+                        + (f" ({resolved.duration_seconds:.0f}s)" if resolved.duration_seconds else "")
+                    ),
+                )
+            )
         self._persist_state()
         return events
 
     def next_track_for_soundscape(self, soundscape_id: str) -> ResolvedTrack | None:
-        selection = self._select_next_track(soundscape_id)
-        if selection is None:
+        track, track_index = self._resolve_next_track(soundscape_id)
+        if track is None:
             return None
-
-        track, track_index = selection
         self._append_log(
             "track_selected",
             soundscape=soundscape_id,
@@ -194,34 +215,151 @@ class PipelineSession:
         return self.next_track_for_soundscape(collection_id)
 
     def track_at_soundscape_index(self, soundscape_id: str, track_index: int) -> tuple[ResolvedTrack, int] | None:
-        resolved = self._state.resolved_tracks.get(soundscape_id, [])
-        if not resolved or track_index < 0 or track_index >= len(resolved):
+        total = self._soundscape_track_count(soundscape_id)
+        if total == 0 or track_index < 0 or track_index >= total:
+            return None
+        resolved = self._resolve_track_at_index(soundscape_id, track_index)
+        if resolved is None:
             return None
         self._state.active_soundscape_id = soundscape_id
         self._state.active_track_index = track_index
-        self._state.next_track_index_by_soundscape[soundscape_id] = (track_index + 1) % len(resolved)
+        self._state.next_track_index_by_soundscape[soundscape_id] = (track_index + 1) % total
         self._append_log(
             "track_selected",
             soundscape=soundscape_id,
             collection=soundscape_id,
             track_index=track_index,
-            title=resolved[track_index].title,
+            title=resolved.title,
         )
         self._persist_state()
-        return resolved[track_index], track_index
+        return resolved, track_index
 
     def track_at_index(self, collection_id: str, track_index: int) -> tuple[ResolvedTrack, int] | None:
         return self.track_at_soundscape_index(collection_id, track_index)
 
-    def _select_next_track(self, soundscape_id: str) -> tuple[ResolvedTrack, int] | None:
-        resolved = self._state.resolved_tracks.get(soundscape_id, [])
-        if not resolved:
+    def _select_next_track_index(self, soundscape_id: str) -> int | None:
+        total = self._soundscape_track_count(soundscape_id)
+        if total == 0:
             return None
 
-        current_index = self._state.next_track_index_by_soundscape.get(soundscape_id, 0) % len(resolved)
-        self._state.next_track_index_by_soundscape[soundscape_id] = (current_index + 1) % len(resolved)
+        current_index = self._state.next_track_index_by_soundscape.get(soundscape_id, 0) % total
+        self._state.next_track_index_by_soundscape[soundscape_id] = (current_index + 1) % total
         self._state.active_track_index = current_index
-        return resolved[current_index], current_index
+        return current_index
+
+    def _resolve_next_track(self, soundscape_id: str) -> tuple[ResolvedTrack | None, int | None]:
+        total = self._soundscape_track_count(soundscape_id)
+        if total == 0:
+            return None, None
+
+        attempts = 0
+        while attempts < total:
+            track_index = self._select_next_track_index(soundscape_id)
+            if track_index is None:
+                return None, None
+            resolved = self._resolve_track_at_index(soundscape_id, track_index)
+            if resolved is not None:
+                return resolved, track_index
+            attempts += 1
+        return None, None
+
+    def _initialize_resolve_state(self) -> None:
+        with self._resolve_lock:
+            for soundscape in self._soundscapes:
+                track_count = len(soundscape.tracks)
+                if track_count == 0:
+                    continue
+                existing = self._state.resolved_tracks.get(soundscape.soundscape_id)
+                if existing is None or len(existing) != track_count:
+                    self._state.resolved_tracks[soundscape.soundscape_id] = [None] * track_count
+                existing_status = self._state.resolved_track_status.get(soundscape.soundscape_id)
+                if existing_status is None or len(existing_status) != track_count:
+                    self._state.resolved_track_status[soundscape.soundscape_id] = [False] * track_count
+
+    def _ensure_resolve_worker(self) -> None:
+        if self._resolve_worker is not None and self._resolve_worker.is_alive():
+            return
+        self._resolve_worker = threading.Thread(
+            target=self._resolve_worker_main,
+            daemon=True,
+            name="dungeon-maestro-resolve-worker",
+        )
+        self._resolve_worker.start()
+
+    def _resolve_worker_main(self) -> None:
+        while not self._resolve_stop.is_set():
+            soundscape_id = None
+            with self._resolve_lock:
+                while not self._resolve_stop.is_set() and soundscape_id is None:
+                    while self._resolve_queue and soundscape_id is None:
+                        candidate = self._resolve_queue.popleft()
+                        if self._has_unresolved(candidate):
+                            soundscape_id = candidate
+                    if soundscape_id is None:
+                        soundscape_id = self._find_next_unresolved_soundscape()
+                    if soundscape_id is None:
+                        self._resolve_cv.wait(timeout=0.5)
+            if soundscape_id is None:
+                continue
+            self._resolve_soundscape_tracks(soundscape_id)
+
+    def _resolve_soundscape_tracks(self, soundscape_id: str) -> None:
+        total = self._soundscape_track_count(soundscape_id)
+        if total == 0:
+            return
+        for index in range(total):
+            if self._resolve_stop.is_set():
+                break
+            self._resolve_track_at_index(soundscape_id, index)
+
+    def _find_next_unresolved_soundscape(self) -> str | None:
+        active_id = self._state.active_soundscape_id
+        if active_id and self._has_unresolved(active_id):
+            return active_id
+        for soundscape in self._soundscapes:
+            if self._has_unresolved(soundscape.soundscape_id):
+                return soundscape.soundscape_id
+        return None
+
+    def _has_unresolved(self, soundscape_id: str) -> bool:
+        status_list = self._state.resolved_track_status.get(soundscape_id)
+        if not status_list:
+            return False
+        return any(not item for item in status_list)
+
+    def _resolve_track_at_index(self, soundscape_id: str, track_index: int) -> ResolvedTrack | None:
+        if soundscape_id not in self._soundscapes_by_id:
+            return None
+        self._initialize_resolve_state()
+
+        with self._resolve_lock:
+            resolved_list = self._state.resolved_tracks.get(soundscape_id)
+            if resolved_list is None:
+                return None
+            existing = resolved_list[track_index]
+            if isinstance(existing, ResolvedTrack):
+                return existing
+
+        soundscape = self._soundscapes_by_id[soundscape_id]
+        try:
+            resolved = self._track_resolver.resolve(soundscape.tracks[track_index].source)
+        except Exception:
+            return None
+
+        with self._resolve_lock:
+            resolved_list = self._state.resolved_tracks.get(soundscape_id)
+            status_list = self._state.resolved_track_status.get(soundscape_id)
+            if resolved_list is None or status_list is None:
+                return resolved
+            resolved_list[track_index] = resolved
+            status_list[track_index] = True
+        return resolved
+
+    def _soundscape_track_count(self, soundscape_id: str) -> int:
+        soundscape = self._soundscapes_by_id.get(soundscape_id)
+        if soundscape is None:
+            return 0
+        return len(soundscape.tracks)
 
     def process_chunk(self, chunk) -> list[PipelineEvent]:
         events = self._collect_transcription_events()
@@ -289,9 +427,8 @@ class PipelineSession:
             )
         )
 
-        selection = self._select_next_track(pending.soundscape_id)
-        if selection is not None:
-            resolved, track_index = selection
+        resolved, track_index = self._resolve_next_track(pending.soundscape_id)
+        if resolved is not None and track_index is not None:
             events.append(
                 PipelineEvent(
                     event_type="selected_track",

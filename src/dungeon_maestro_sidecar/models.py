@@ -10,6 +10,7 @@ class TrackSource:
 
 @dataclass(slots=True)
 class Soundscape:
+    # Playback unit. Collections are UI groupings and are not represented here.
     soundscape_id: str
     name: str
     keywords: list[str]
@@ -18,6 +19,7 @@ class Soundscape:
 
     @property
     def collection_id(self) -> str:
+        # Legacy alias for older callers that used collections as soundscapes.
         return self.soundscape_id
 
     @collection_id.setter
@@ -25,6 +27,7 @@ class Soundscape:
         self.soundscape_id = value
 
 
+# Legacy alias: a Collection used to be a Soundscape.
 Collection = Soundscape
 
 
@@ -105,12 +108,14 @@ class PipelineState:
     speech_chunks_seen: int = 0
     cooldown_until_epoch: float = 0.0
     pending_transition: PendingTransition | None = None
-    resolved_tracks: dict[str, list[ResolvedTrack]] = field(default_factory=dict)
+    resolved_tracks: dict[str, list[ResolvedTrack | None]] = field(default_factory=dict)
+    resolved_track_status: dict[str, list[bool]] = field(default_factory=dict)
     next_track_index_by_soundscape: dict[str, int] = field(default_factory=dict)
     session_log: list[dict[str, object]] = field(default_factory=list)
 
     @property
     def active_collection_id(self) -> str:
+        # Legacy alias for older callers that used collections as soundscapes.
         return self.active_soundscape_id
 
     @active_collection_id.setter
