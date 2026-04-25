@@ -24,6 +24,8 @@ export function createSoundscapeDraft(soundscape) {
     name: soundscape.name || '',
     keywords: Array.isArray(soundscape.keywords) ? [...soundscape.keywords] : [],
     tracks: Array.isArray(soundscape.tracks) ? soundscape.tracks.map((track) => track?.source || '') : [],
+    shuffle: Boolean(soundscape.shuffle),
+    startupMode: soundscape.startupMode || soundscape.startup_mode || 'no_preload',
   }
 }
 
@@ -50,6 +52,8 @@ export function createNewSoundscapeDraft(soundscapeName) {
     name: normalizedName,
     keywords: [],
     tracks: [],
+    shuffle: false,
+    startupMode: 'no_preload',
   }
 }
 
@@ -114,6 +118,11 @@ export function validateSoundscapeDraft(draft) {
   const trackTypes = draft.tracks.map((track) => inferTrackSource(track))
 
   const normalizedName = normalizeText(draft.name)
+  const startupMode = normalizeText(draft.startupMode || '').toLowerCase() || 'no_preload'
+  const normalizedStartupMode = startupMode === 'preload_all' || startupMode === 'preload_first' || startupMode === 'no_preload'
+    ? startupMode
+    : 'no_preload'
+  const normalizedShuffle = Boolean(draft.shuffle)
   if (!normalizedName) {
     fieldErrors.name = 'Soundscape name cannot be empty.'
   }
@@ -174,6 +183,8 @@ export function validateSoundscapeDraft(draft) {
       name: normalizedName,
       keywords: normalizedKeywords,
       tracks: normalizedTracks,
+      shuffle: normalizedShuffle,
+      startupMode: normalizedStartupMode,
     },
     fieldErrors,
     keywordErrors,

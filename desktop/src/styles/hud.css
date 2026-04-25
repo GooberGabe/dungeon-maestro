@@ -1,20 +1,36 @@
+body.hud-mode,
+body.hud-mode #root {
+  background: transparent;
+  border-radius: 22px;
+  overflow: hidden;
+}
+
 .hud-shell {
   min-height: 100vh;
-  padding: 10px;
+  padding: 0;
+  border-radius: 22px;
+  overflow: hidden;
+  -webkit-app-region: drag;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.hud-shell * {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .hud-card {
-  min-height: calc(100vh - 20px);
-  border-radius: 24px;
-  border: 1px solid rgba(214, 176, 84, 0.26);
+  min-height: 100vh;
+  border-radius: 22px;
+  border: 2px solid rgba(214, 176, 84, 0.36);
   background:
-    radial-gradient(circle at top right, rgba(240, 212, 138, 0.14), transparent 28%),
-    linear-gradient(180deg, rgba(10, 27, 44, 0.96), rgba(5, 14, 24, 0.94));
-  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.42);
-  padding: 12px;
+    radial-gradient(circle at top right, rgba(240, 212, 138, 0.08), transparent 36%),
+    linear-gradient(180deg, rgba(11, 28, 43, 0.9), rgba(8, 18, 30, 0.86));
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
   display: grid;
   gap: 12px;
-  border-top: 1px solid rgba(240, 212, 138, 0.34);
+  border-top: 2px solid rgba(240, 212, 138, 0.45);
   -webkit-app-region: drag;
   position: relative;
 }
@@ -22,6 +38,7 @@
 .hud-core-layer {
   display: grid;
   gap: 12px;
+  padding: 12px;
   transition: opacity 180ms ease, transform 180ms ease, filter 180ms ease;
 }
 
@@ -167,11 +184,11 @@
 
 .hud-transition-overlay {
   position: absolute;
-  inset: 8px;
+  inset: 0;
   display: grid;
   place-items: center;
-  border-radius: 20px;
-  background: linear-gradient(180deg, rgba(6, 17, 29, 0.88), rgba(5, 14, 24, 0.94));
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(7, 19, 30, 0.82), rgba(6, 16, 27, 0.88));
   border: 1px solid rgba(214, 176, 84, 0.22);
   backdrop-filter: blur(10px);
 }

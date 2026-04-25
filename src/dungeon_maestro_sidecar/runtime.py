@@ -47,6 +47,9 @@ class RuntimeOptions:
     discord_voice_channel_id: int | None = None
     crossfade_enabled: bool | None = None
     crossfade_duration_seconds: float | None = None
+    loop_enabled: bool | None = None
+    crossfade_pause_enabled: bool | None = None
+    prioritized_soundscape_ids: list[str] | None = None
 
     def __post_init__(self) -> None:
         if self.starting_soundscape is None:
@@ -76,8 +79,9 @@ class LiveSessionRuntime:
         self._options.output_mode = initial_output_mode
         self._crossfade_enabled = bool(options.crossfade_enabled) if options.crossfade_enabled is not None else False
         self._crossfade_duration = float(options.crossfade_duration_seconds) if options.crossfade_duration_seconds is not None else 3.0
-        self._loop_enabled = False
-        self._crossfade_pause_enabled = False
+        self._loop_enabled = bool(options.loop_enabled) if options.loop_enabled is not None else False
+        self._crossfade_pause_enabled = bool(options.crossfade_pause_enabled) if options.crossfade_pause_enabled is not None else False
+        self._resolve_status_signature: tuple[object, ...] | None = None
         self._status: dict[str, object] = {
             "sessionRunning": False,
             "activeSoundscape": None,
@@ -96,6 +100,11 @@ class LiveSessionRuntime:
             "crossfadeDurationSeconds": self._crossfade_duration,
             "loopEnabled": self._loop_enabled,
             "crossfadePauseEnabled": self._crossfade_pause_enabled,
+            "resolvedTrackStatusBySoundscape": {},
+            "resolveBackgroundTier": "idle",
+            "resolveBackgroundTargetSoundscape": None,
+            "resolveBackgroundQueueLength": 0,
+            "resolveBackgroundUnresolvedSoundscapeCount": 0,
         }
 
     def start(self) -> dict[str, object]:
@@ -171,10 +180,15 @@ class LiveSessionRuntime:
             },
         )
 
-        for event in self._session.warm_resolve_tracks():
-            self._emit("resolve_event", {"event_type": event.event_type, "message": event.message})
+        self._session.warm_resolve_tracks()
+        self._emit_resolve_status_if_changed(force=True)
 
-        self._session.start_background_resolve(self._session.state.active_soundscape_id)
+        self._session.start_background_resolve(
+            self._session.state.active_soundscape_id,
+            prioritized_soundscape_ids=self._options.prioritized_soundscape_ids or [],
+            respect_startup_mode=True,
+        )
+        self._emit_resolve_status_if_changed(force=True)
 
         self._configure_output_mode(self._options.output_mode, replay_current_track=False)
 
@@ -235,11 +249,13 @@ class LiveSessionRuntime:
                 self._discord_bridge.set_crossfade_duration(self._crossfade_duration)
         if loop_enabled is not None:
             self._loop_enabled = bool(loop_enabled)
+            self._options.loop_enabled = self._loop_enabled
             self._status["loopEnabled"] = self._loop_enabled
             if self._player is not None:
                 self._player.loop_enabled = self._loop_enabled
         if crossfade_pause_enabled is not None:
             self._crossfade_pause_enabled = bool(crossfade_pause_enabled)
+            self._options.crossfade_pause_enabled = self._crossfade_pause_enabled
             self._status["crossfadePauseEnabled"] = self._crossfade_pause_enabled
             if self._player is not None:
                 self._player.crossfade_pause = self._crossfade_pause_enabled
@@ -259,6 +275,20 @@ class LiveSessionRuntime:
                 "crossfadePauseEnabled": self._status["crossfadePauseEnabled"],
             },
         )
+        return self.status_snapshot()
+
+    def update_resolve_priorities(self, *, prioritized_soundscape_ids: list[str] | None = None) -> dict[str, object]:
+        with self._session_lock:
+            if self._session is None:
+                raise RuntimeError("Session is not running")
+            normalized_prioritized = list(prioritized_soundscape_ids or [])
+            self._options.prioritized_soundscape_ids = normalized_prioritized
+            self._session.start_background_resolve(
+                self._session.state.active_soundscape_id,
+                prioritized_soundscape_ids=normalized_prioritized,
+                respect_startup_mode=False,
+            )
+        self._emit_resolve_status_if_changed(force=True)
         return self.status_snapshot()
 
     def seek_track(self, position_seconds: float) -> dict[str, object]:
@@ -386,7 +416,7 @@ class LiveSessionRuntime:
         with self._session_lock:
             self._current_track = track
         self._play_track_on_active_output(track)
-        self._start_background_resolve(soundscape_id)
+        self._start_background_resolve(soundscape_id, respect_startup_mode=initial)
         if self._status["playbackPaused"]:
             self._apply_pause_state(True)
         self._emit(
@@ -403,6 +433,7 @@ class LiveSessionRuntime:
         return self.status_snapshot()
 
     def status_snapshot(self) -> dict[str, object]:
+        self._sync_resolve_status_into_status()
         return dict(self._status)
 
     def play_track_at_index(self, collection_id: str, track_index: int) -> dict[str, object]:
@@ -510,6 +541,7 @@ class LiveSessionRuntime:
                     self._handle_event(event)
                 for event in chunk_events:
                     self._handle_event(event)
+                self._emit_resolve_status_if_changed()
                 if self._player is not None and self._player.last_error:
                     self._status["lastError"] = self._player.last_error
                     self._emit("error", {"code": "local_playback", "message": self._player.last_error})
@@ -596,6 +628,59 @@ class LiveSessionRuntime:
         if self._on_event is not None:
             self._on_event(event_name, payload)
 
+    def _sync_resolve_status_into_status(self) -> dict[str, list[bool]]:
+        if self._session is None:
+            self._status["resolvedTrackStatusBySoundscape"] = {}
+            self._status["resolveBackgroundTier"] = "idle"
+            self._status["resolveBackgroundTargetSoundscape"] = None
+            self._status["resolveBackgroundQueueLength"] = 0
+            self._status["resolveBackgroundUnresolvedSoundscapeCount"] = 0
+            return {}
+        snapshot = self._session.resolved_track_status_snapshot()
+        background = self._session.background_resolve_snapshot()
+        self._status["resolvedTrackStatusBySoundscape"] = snapshot
+        self._status["resolveBackgroundTier"] = background.get("tier", "idle")
+        self._status["resolveBackgroundTargetSoundscape"] = background.get("target_soundscape")
+        self._status["resolveBackgroundQueueLength"] = background.get("queue_length", 0)
+        self._status["resolveBackgroundUnresolvedSoundscapeCount"] = background.get("unresolved_soundscape_count", 0)
+        return snapshot
+
+    def _emit_resolve_status_if_changed(self, *, force: bool = False) -> None:
+        snapshot = self._sync_resolve_status_into_status()
+        tier = self._status.get("resolveBackgroundTier", "idle")
+        target_soundscape = self._status.get("resolveBackgroundTargetSoundscape")
+        queue_length = self._status.get("resolveBackgroundQueueLength", 0)
+        unresolved_soundscape_count = self._status.get("resolveBackgroundUnresolvedSoundscapeCount", 0)
+        signature = tuple(
+            (soundscape_id, tuple(statuses))
+            for soundscape_id, statuses in sorted(snapshot.items(), key=lambda item: item[0])
+        )
+        status_signature = (
+            signature,
+            str(tier),
+            str(target_soundscape) if target_soundscape is not None else None,
+            int(queue_length) if isinstance(queue_length, (int, float)) else 0,
+            int(unresolved_soundscape_count) if isinstance(unresolved_soundscape_count, (int, float)) else 0,
+        )
+        if not force and status_signature == self._resolve_status_signature:
+            return
+        self._resolve_status_signature = status_signature
+        self._emit(
+            "resolve_status_updated",
+            {
+                "resolvedTrackStatusBySoundscape": snapshot,
+                "resolved_track_status_by_soundscape": snapshot,
+                "resolveBackgroundTier": self._status.get("resolveBackgroundTier", "idle"),
+                "resolve_background_tier": self._status.get("resolveBackgroundTier", "idle"),
+                "resolveBackgroundTargetSoundscape": self._status.get("resolveBackgroundTargetSoundscape"),
+                "resolve_background_target_soundscape": self._status.get("resolveBackgroundTargetSoundscape"),
+                "resolveBackgroundQueueLength": self._status.get("resolveBackgroundQueueLength", 0),
+                "resolve_background_queue_length": self._status.get("resolveBackgroundQueueLength", 0),
+                "resolveBackgroundUnresolvedSoundscapeCount": self._status.get("resolveBackgroundUnresolvedSoundscapeCount", 0),
+                "resolve_background_unresolved_soundscape_count": self._status.get("resolveBackgroundUnresolvedSoundscapeCount", 0),
+            },
+        )
+
     def _apply_pause_state(self, paused: bool) -> None:
         if self._player is not None:
             if paused:
@@ -637,6 +722,8 @@ class LiveSessionRuntime:
                 crossfade_duration_seconds=self._crossfade_duration,
                 on_track_finished=self._handle_output_track_finished,
             )
+            next_player.loop_enabled = self._loop_enabled
+            next_player.crossfade_pause = self._crossfade_pause_enabled
             if replay_current_track and current_track is not None:
                 next_player.play(current_track)
 
@@ -677,15 +764,39 @@ class LiveSessionRuntime:
         if self._player is not None:
             self._player.play(track)
 
-    def _start_background_resolve(self, soundscape_id: str | None) -> None:
+    def _start_background_resolve(self, soundscape_id: str | None, *, respect_startup_mode: bool = False) -> None:
         if self._session is None:
             return
-        self._session.start_background_resolve(soundscape_id)
+        self._session.start_background_resolve(
+            soundscape_id,
+            prioritized_soundscape_ids=self._options.prioritized_soundscape_ids or [],
+            respect_startup_mode=respect_startup_mode,
+        )
 
     def _handle_output_track_finished(self, track) -> None:
         with self._session_lock:
             if self._session is None or self._current_track is not track:
                 return
+            should_loop = self._loop_enabled
+            soundscape_id = self._session.state.active_soundscape_id
+            track_index = self._session.state.active_track_index
+
+        if should_loop:
+            self._play_track_on_active_output(track)
+            if self._status["playbackPaused"]:
+                self._apply_pause_state(True)
+            self._emit(
+                "track_started",
+                {
+                    "soundscape": soundscape_id,
+                    "collection": soundscape_id,
+                    "track_index": track_index,
+                    "title": track.title,
+                    "duration_seconds": track.duration_seconds,
+                    "initial": False,
+                },
+            )
+            return
 
         try:
             self.skip_track()

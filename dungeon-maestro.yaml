@@ -16,6 +16,8 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=8yRG4z-bbS0&t=788s
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '515244711':
     name: Desert Travels
     keywords: []
@@ -25,6 +27,8 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=Pb6oXRDIMlQ&t=1716s
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '1074876644':
     name: Mandibar Combat
     keywords: []
@@ -37,10 +41,20 @@ soundscapes:
       - source: silksong strive
       - source: silksong the choir
       - source: last judge silksong
-      - source: silksong bell beast
       - source: silksong lost lace
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
+  '1768142633':
+    name: Thalladon
+    keywords: []
+    tracks:
+      - source: https://www.youtube.com/watch?v=NTDpg_N6WRI
+    playback:
+      mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '1908961091':
     name: Sequestris
     keywords: []
@@ -48,6 +62,8 @@ soundscapes:
       - source: City of Tears extended
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '1978166728':
     name: Itzcoatl
     keywords: []
@@ -55,6 +71,17 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=AgKswmFamSo&t=291s
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
+  '2030352279':
+    name: Cold
+    keywords: []
+    tracks:
+      - source: https://www.youtube.com/watch?v=6aOPp30EWfs
+    playback:
+      mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '2350749544':
     name: Librium
     keywords: []
@@ -63,6 +90,17 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=mobHR__vg9U
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
+  '2769383372':
+    name: Conflict - Baroque
+    keywords: []
+    tracks:
+      - source: https://www.youtube.com/watch?v=kzTWFh_OuEY
+    playback:
+      mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '2810215659':
     name: Thoraxis
     keywords: []
@@ -70,6 +108,8 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=wXLdWR1HmCA
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '2924151335':
     name: Dismay
     keywords: []
@@ -79,6 +119,8 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=C-yBu9D6Ob0
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '3021173776':
     name: Journey
     keywords: []
@@ -90,6 +132,27 @@ soundscapes:
       - source: Genshin impact tender strength
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
+  '3402406018':
+    name: Auction
+    keywords: []
+    tracks:
+      - source: https://www.youtube.com/watch?v=tiulg9ySfR8
+      - source: https://www.youtube.com/watch?v=QFSunKPD-Zc
+    playback:
+      mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
+  '3449573832':
+    name: Talonrook
+    keywords: []
+    tracks:
+      - source: https://www.youtube.com/watch?v=Vi2nBYP8gwM
+    playback:
+      mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '3470141455':
     name: Capella
     keywords: []
@@ -97,14 +160,18 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=gF-YOid1G0w
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '3614038951':
-    name: Parlay - Victory
+    name: Victory
     keywords: []
     tracks:
       - source: https://www.youtube.com/watch?v=SjwVrEMjyxY
       - source: silksong lost verdania
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '3652925209':
     name: Dread
     keywords: []
@@ -112,6 +179,8 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=LSMyD0b5-nI
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '3944325949':
     name: Mandibar Travel
     keywords: []
@@ -119,6 +188,8 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=0wC0ZLbBPDY
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '4070793741':
     name: Hexos
     keywords: []
@@ -126,6 +197,19 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=s7DA5JCza7A
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
+  '4143191323':
+    name: Peace
+    keywords: []
+    tracks:
+      - source: https://www.youtube.com/watch?v=SRTpXWMOEtM
+      - source: https://www.youtube.com/watch?v=HSLwh_KOVBk
+      - source: https://www.youtube.com/watch?v=WSyqRAc0f9c
+    playback:
+      mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
   '4149047932':
     name: Parlay - Tribunal Forum
     keywords: []
@@ -133,6 +217,17 @@ soundscapes:
       - source: https://www.youtube.com/watch?v=2xyA_799mho
     playback:
       mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
+  '4278627874':
+    name: Ocean
+    keywords: []
+    tracks:
+      - source: https://www.youtube.com/watch?v=Agiua2jUTpE
+    playback:
+      mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
 collections:
   parlay-of-mandibar:
     name: Parlay of Mandibar
@@ -153,3 +248,14 @@ collections:
       - '3470141455'
       - '515244711'
       - '1978166728'
+  4-24-2026:
+    name: 4/24/2026
+    soundscapes:
+      - '2350749544'
+      - '3470141455'
+      - '4278627874'
+      - '2030352279'
+      - '3449573832'
+      - '3402406018'
+      - '2769383372'
+      - '515244711'

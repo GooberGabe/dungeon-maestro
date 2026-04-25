@@ -39,8 +39,82 @@ function syncStateAliases() {
   }
 }
 
+function syncPlaybackPreferencesIntoState() {
+  sessionState.volumePercent = desktopSettings.volumePercent
+  sessionState.playbackMuted = desktopSettings.playbackMuted
+  sessionState.crossfadeEnabled = desktopSettings.crossfadeEnabled
+  sessionState.crossfadeDurationSeconds = desktopSettings.crossfadeDurationSeconds
+  sessionState.loopTrackByDefault = desktopSettings.loopTrackByDefault
+  sessionState.loopEnabled = desktopSettings.loopEnabled
+  sessionState.crossfadePauseEnabled = desktopSettings.crossfadePauseEnabled
+}
+
+function syncSessionPreferencesIntoState() {
+  sessionState.transcriptionEnabled = desktopSettings.transcriptionEnabled
+  sessionState.transcriptionProfile = desktopSettings.transcriptionProfile
+  sessionState.transitionProposalsEnabled = desktopSettings.transitionProposalsEnabled
+  sessionState.transitionTimeoutSeconds = desktopSettings.transitionTimeoutSeconds
+}
+
+function persistPlaybackPreferences(nextPreferences) {
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'volumePercent')) {
+    const parsed = Number.parseInt(nextPreferences.volumePercent, 10)
+    if (Number.isFinite(parsed)) {
+      desktopSettings.volumePercent = Math.max(0, Math.min(100, parsed))
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'playbackMuted') && typeof nextPreferences.playbackMuted === 'boolean') {
+    desktopSettings.playbackMuted = nextPreferences.playbackMuted
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'crossfadeEnabled') && typeof nextPreferences.crossfadeEnabled === 'boolean') {
+    desktopSettings.crossfadeEnabled = nextPreferences.crossfadeEnabled
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'crossfadeDurationSeconds')) {
+    const parsed = Number.parseFloat(nextPreferences.crossfadeDurationSeconds)
+    if (Number.isFinite(parsed)) {
+      desktopSettings.crossfadeDurationSeconds = Math.max(0.5, Math.min(15, parsed))
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'loopTrackByDefault') && typeof nextPreferences.loopTrackByDefault === 'boolean') {
+    desktopSettings.loopTrackByDefault = nextPreferences.loopTrackByDefault
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'loopEnabled') && typeof nextPreferences.loopEnabled === 'boolean') {
+    desktopSettings.loopEnabled = nextPreferences.loopEnabled
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'crossfadePauseEnabled') && typeof nextPreferences.crossfadePauseEnabled === 'boolean') {
+    desktopSettings.crossfadePauseEnabled = nextPreferences.crossfadePauseEnabled
+  }
+  saveDesktopSettings()
+  syncPlaybackPreferencesIntoState()
+}
+
+function persistSessionPreferences(nextPreferences) {
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'transcriptionEnabled') && typeof nextPreferences.transcriptionEnabled === 'boolean') {
+    desktopSettings.transcriptionEnabled = nextPreferences.transcriptionEnabled
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'transcriptionProfile') && typeof nextPreferences.transcriptionProfile === 'string') {
+    desktopSettings.transcriptionProfile = nextPreferences.transcriptionProfile
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'transitionProposalsEnabled') && typeof nextPreferences.transitionProposalsEnabled === 'boolean') {
+    desktopSettings.transitionProposalsEnabled = nextPreferences.transitionProposalsEnabled
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPreferences, 'transitionTimeoutSeconds')) {
+    const parsed = Number.parseInt(nextPreferences.transitionTimeoutSeconds, 10)
+    if (Number.isFinite(parsed)) {
+      desktopSettings.transitionTimeoutSeconds = Math.max(5, Math.min(300, parsed))
+    }
+  }
+  saveDesktopSettings()
+  syncSessionPreferencesIntoState()
+}
+
 function applyStatusPayload(payload) {
   Object.assign(sessionState, payload)
+  if (!sessionState.sessionRunning && !sessionState.startupInProgress) {
+    // Keep persisted desktop preferences authoritative while idle.
+    syncPlaybackPreferencesIntoState()
+    syncSessionPreferencesIntoState()
+  }
   if (!sessionState.sessionRunning || sessionState.currentTrackIndex == null) {
     sessionState.currentTrackPositionSeconds = 0
   }
@@ -148,6 +222,8 @@ function saveCollectionConfig(collectionId, payload, validateEdits) {
     playback: {
       ...(currentCollection?.playback && typeof currentCollection.playback === 'object' ? currentCollection.playback : {}),
       mode: currentCollection?.playback?.mode || 'sequential_loop',
+      shuffle: normalized.shuffle,
+      startup_mode: normalized.startupMode,
     },
   }
 
@@ -204,13 +280,7 @@ function deleteCollectionConfig(collectionId) {
 }
 
 function createSessionCollection(name) {
-  let normalizedName
-  try {
-    normalizedName = validateSessionCollectionName(name)
-  } catch (e) {
-    // Fallback: if name is empty or invalid, use a default name with timestamp
-    normalizedName = `Session Collection ${new Date().toISOString().replace(/[:.]/g, '-')}`
-  }
+  const normalizedName = validateSessionCollectionName(name)
   const { configPath, parsed } = loadParsedConfig()
   normalizeConfigDocument(parsed)
   const collectionsMap = getCollectionsMap(parsed)
@@ -395,6 +465,15 @@ function handleSidecarEvent(eventName, payload) {
     sessionState.currentTrackDurationSeconds = payload.duration_seconds ?? null
     sessionState.currentTrackStartedAt = Date.now() / 1000
     sessionState.currentTrackPositionSeconds = 0
+    if (desktopSettings.loopTrackByDefault && !sessionState.loopEnabled) {
+      sessionState.loopEnabled = true
+      desktopSettings.loopEnabled = true
+      saveDesktopSettings()
+      void sendSidecarCommand('update_playback_settings', { loop_enabled: true }).catch((error) => {
+        sessionState.lastError = error.message
+        emitState()
+      })
+    }
     syncStateAliases()
     emitState()
     return
@@ -404,6 +483,32 @@ function handleSidecarEvent(eventName, payload) {
     const pos = payload.position_seconds ?? 0
     sessionState.currentTrackStartedAt = (Date.now() / 1000) - pos
     sessionState.currentTrackPositionSeconds = pos
+    emitState()
+    return
+  }
+
+  if (eventName === 'resolve_status_updated') {
+    sessionState.resolvedTrackStatusBySoundscape = payload.resolvedTrackStatusBySoundscape
+      || payload.resolved_track_status_by_soundscape
+      || {}
+    sessionState.resolveBackgroundTier = payload.resolveBackgroundTier
+      || payload.resolve_background_tier
+      || sessionState.resolveBackgroundTier
+      || 'idle'
+    sessionState.resolveBackgroundTargetSoundscape = payload.resolveBackgroundTargetSoundscape
+      ?? payload.resolve_background_target_soundscape
+      ?? sessionState.resolveBackgroundTargetSoundscape
+      ?? null
+    sessionState.resolveBackgroundQueueLength = Number.isFinite(Number(payload.resolveBackgroundQueueLength))
+      ? Number(payload.resolveBackgroundQueueLength)
+      : (Number.isFinite(Number(payload.resolve_background_queue_length))
+        ? Number(payload.resolve_background_queue_length)
+        : (sessionState.resolveBackgroundQueueLength || 0))
+    sessionState.resolveBackgroundUnresolvedSoundscapeCount = Number.isFinite(Number(payload.resolveBackgroundUnresolvedSoundscapeCount))
+      ? Number(payload.resolveBackgroundUnresolvedSoundscapeCount)
+      : (Number.isFinite(Number(payload.resolve_background_unresolved_soundscape_count))
+        ? Number(payload.resolve_background_unresolved_soundscape_count)
+        : (sessionState.resolveBackgroundUnresolvedSoundscapeCount || 0))
     emitState()
     return
   }
@@ -571,15 +676,59 @@ ipcMain.handle('session:start', async (_event, payload) => {
     return getBootstrapData()
   }
 
-  const transcriptionEnabled = payload?.transcriptionEnabled !== false
-  const transitionProposalsEnabled = transcriptionEnabled && payload?.transitionProposalsEnabled !== false
-  const transitionTimeoutSeconds = Number.parseInt(payload?.transitionTimeoutSeconds, 10)
-  const transcriptionProfile = typeof payload?.transcriptionProfile === 'string' ? payload.transcriptionProfile : undefined
+  const transcriptionEnabled = false
+  const transitionProposalsEnabled = false
+  const requestedTransitionTimeoutSeconds = Number.parseInt(payload?.transitionTimeoutSeconds, 10)
+  const transitionTimeoutSeconds = Number.isFinite(requestedTransitionTimeoutSeconds)
+    ? requestedTransitionTimeoutSeconds
+    : desktopSettings.transitionTimeoutSeconds
+  const transcriptionProfile = typeof payload?.transcriptionProfile === 'string'
+    ? payload.transcriptionProfile
+    : desktopSettings.transcriptionProfile
   const outputMode = normalizeOutputMode(payload?.outputMode || desktopSettings.outputMode)
+
+  persistSessionPreferences({
+    transcriptionEnabled,
+    transcriptionProfile,
+    transitionProposalsEnabled,
+    transitionTimeoutSeconds,
+  })
 
   if (outputMode === 'discord' && (!desktopSettings.botToken || !desktopSettings.discordVoiceChannelId)) {
     throw new Error('Discord output requires a saved bot token and selected voice channel')
   }
+
+  const requestedVolumePercent = Number.parseInt(payload?.volumePercent, 10)
+  const effectiveVolumePercent = Number.isFinite(requestedVolumePercent) ? requestedVolumePercent : sessionState.volumePercent
+  const effectivePlaybackMuted = typeof payload?.muted === 'boolean' ? payload.muted : sessionState.playbackMuted
+  const requestedCrossfadeEnabled = payload?.crossfadeEnabled
+  const effectiveCrossfadeEnabled = typeof requestedCrossfadeEnabled === 'boolean' ? requestedCrossfadeEnabled : sessionState.crossfadeEnabled
+  const requestedCrossfadeDurationSeconds = Number.parseFloat(payload?.crossfadeDurationSeconds)
+  const effectiveCrossfadeDurationSeconds = Number.isFinite(requestedCrossfadeDurationSeconds)
+    ? requestedCrossfadeDurationSeconds
+    : sessionState.crossfadeDurationSeconds
+  const requestedLoopEnabled = payload?.loopEnabled
+  const effectiveLoopEnabled = typeof requestedLoopEnabled === 'boolean'
+    ? requestedLoopEnabled
+    : (desktopSettings.loopTrackByDefault ? true : sessionState.loopEnabled)
+  const requestedLoopTrackByDefault = payload?.loopTrackByDefault
+  const effectiveLoopTrackByDefault = typeof requestedLoopTrackByDefault === 'boolean'
+    ? requestedLoopTrackByDefault
+    : desktopSettings.loopTrackByDefault
+  const requestedCrossfadePauseEnabled = payload?.crossfadePauseEnabled
+  const effectiveCrossfadePauseEnabled = typeof requestedCrossfadePauseEnabled === 'boolean'
+    ? requestedCrossfadePauseEnabled
+    : sessionState.crossfadePauseEnabled
+
+  persistPlaybackPreferences({
+    volumePercent: effectiveVolumePercent,
+    playbackMuted: effectivePlaybackMuted,
+    crossfadeEnabled: effectiveCrossfadeEnabled,
+    crossfadeDurationSeconds: effectiveCrossfadeDurationSeconds,
+    loopTrackByDefault: effectiveLoopTrackByDefault,
+    loopEnabled: effectiveLoopEnabled,
+    crossfadePauseEnabled: effectiveCrossfadePauseEnabled,
+  })
 
   await sendSidecarCommand('start_session', {
     config_path: desktopSettings.configPath,
@@ -589,11 +738,18 @@ ipcMain.handle('session:start', async (_event, payload) => {
     transcription_profile: transcriptionProfile,
     enable_transition_proposals: transitionProposalsEnabled,
     transition_popup_timeout: Number.isFinite(transitionTimeoutSeconds) ? transitionTimeoutSeconds : undefined,
-    volume_percent: Number.isFinite(Number.parseInt(payload?.volumePercent, 10)) ? Number.parseInt(payload?.volumePercent, 10) : sessionState.volumePercent,
-    muted: typeof payload?.muted === 'boolean' ? payload.muted : sessionState.playbackMuted,
+    volume_percent: sessionState.volumePercent,
+    muted: sessionState.playbackMuted,
     paused: typeof payload?.paused === 'boolean' ? payload.paused : false,
+    crossfade_enabled: sessionState.crossfadeEnabled,
+    crossfade_duration_seconds: sessionState.crossfadeDurationSeconds,
+    loop_enabled: sessionState.loopEnabled,
+    crossfade_pause_enabled: sessionState.crossfadePauseEnabled,
     output_mode: outputMode,
     no_auto_play: outputMode !== 'local',
+    prioritized_soundscape_ids: Array.isArray(payload?.prioritizedSoundscapeIds)
+      ? payload.prioritizedSoundscapeIds
+      : undefined,
     discord_token: outputMode === 'discord' ? (desktopSettings.botToken || undefined) : undefined,
     discord_guild_id: outputMode === 'discord' ? (desktopSettings.discordGuildId || undefined) : undefined,
     discord_voice_channel_id: outputMode === 'discord' ? (desktopSettings.discordVoiceChannelId || undefined) : undefined,
@@ -602,17 +758,28 @@ ipcMain.handle('session:start', async (_event, payload) => {
 })
 
 ipcMain.handle('playback:update-settings', async (_event, payload) => {
-  if (!sessionState.sessionRunning || sessionState.startupInProgress) {
-    return getBootstrapData()
-  }
-
   const volumePercent = Number.parseInt(payload?.volumePercent, 10)
   const muted = payload?.muted
   const paused = payload?.paused
   const crossfadeEnabled = payload?.crossfadeEnabled
   const crossfadeDurationSeconds = Number.parseFloat(payload?.crossfadeDurationSeconds)
+  const loopTrackByDefault = payload?.loopTrackByDefault
   const loopEnabled = payload?.loopEnabled
   const crossfadePauseEnabled = payload?.crossfadePauseEnabled
+
+  persistPlaybackPreferences({
+    volumePercent: Number.isFinite(volumePercent) ? volumePercent : undefined,
+    playbackMuted: typeof muted === 'boolean' ? muted : undefined,
+    crossfadeEnabled: typeof crossfadeEnabled === 'boolean' ? crossfadeEnabled : undefined,
+    crossfadeDurationSeconds: Number.isFinite(crossfadeDurationSeconds) ? crossfadeDurationSeconds : undefined,
+    loopTrackByDefault: typeof loopTrackByDefault === 'boolean' ? loopTrackByDefault : undefined,
+    loopEnabled: typeof loopEnabled === 'boolean' ? loopEnabled : undefined,
+    crossfadePauseEnabled: typeof crossfadePauseEnabled === 'boolean' ? crossfadePauseEnabled : undefined,
+  })
+
+  if (!sessionState.sessionRunning || sessionState.startupInProgress) {
+    return getBootstrapData()
+  }
 
   if (typeof paused === 'boolean' && sessionState.currentTrackIndex !== null) {
     if (paused) {
@@ -651,20 +818,40 @@ ipcMain.handle('playback:seek', async (_event, positionSeconds) => {
 })
 
 ipcMain.handle('session:update-settings', async (_event, payload) => {
-  if (!sessionState.sessionRunning || sessionState.startupInProgress) {
-    return getBootstrapData()
-  }
-
   const transcriptionEnabled = payload?.transcriptionEnabled
   const transcriptionProfile = typeof payload?.transcriptionProfile === 'string' ? payload.transcriptionProfile : undefined
   const transitionProposalsEnabled = payload?.transitionProposalsEnabled
   const transitionTimeoutSeconds = Number.parseInt(payload?.transitionTimeoutSeconds, 10)
+
+  persistSessionPreferences({
+    transcriptionEnabled: typeof transcriptionEnabled === 'boolean' ? transcriptionEnabled : undefined,
+    transcriptionProfile,
+    transitionProposalsEnabled: typeof transitionProposalsEnabled === 'boolean' ? transitionProposalsEnabled : undefined,
+    transitionTimeoutSeconds: Number.isFinite(transitionTimeoutSeconds) ? transitionTimeoutSeconds : undefined,
+  })
+
+  if (!sessionState.sessionRunning || sessionState.startupInProgress) {
+    return getBootstrapData()
+  }
 
   await sendSidecarCommand('update_session_settings', {
     transcription_enabled: typeof transcriptionEnabled === 'boolean' ? transcriptionEnabled : undefined,
     transcription_profile: transcriptionProfile,
     enable_transition_proposals: typeof transitionProposalsEnabled === 'boolean' ? transitionProposalsEnabled : undefined,
     transition_popup_timeout: Number.isFinite(transitionTimeoutSeconds) ? transitionTimeoutSeconds : undefined,
+  })
+  return getBootstrapData()
+})
+
+ipcMain.handle('session:update-resolve-priorities', async (_event, prioritizedSoundscapeIds) => {
+  if (!sessionState.sessionRunning || sessionState.startupInProgress) {
+    return getBootstrapData()
+  }
+
+  await sendSidecarCommand('update_resolve_priorities', {
+    prioritized_soundscape_ids: Array.isArray(prioritizedSoundscapeIds)
+      ? prioritizedSoundscapeIds
+      : [],
   })
   return getBootstrapData()
 })
@@ -716,6 +903,8 @@ ipcMain.handle('hud:dismiss-transition', async () => {
 
 app.whenReady().then(() => {
   loadDesktopSettings()
+  syncPlaybackPreferencesIntoState()
+  syncSessionPreferencesIntoState()
   syncConfigIntoState()
   loadAppConfig(desktopSettings.configPath)
   syncStateAliases()

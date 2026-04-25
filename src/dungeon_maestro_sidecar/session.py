@@ -4,6 +4,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
+import random
 import threading
 import time
 from typing import Protocol
@@ -84,11 +86,15 @@ class PipelineSession:
         self._resolve_lock = threading.Lock()
         self._resolve_cv = threading.Condition(self._resolve_lock)
         self._resolve_queue: deque[str] = deque()
+        self._background_prioritized_soundscape_ids: list[str] = []
+        self._background_resolve_tier: str = "idle"
+        self._background_resolve_soundscape_id: str | None = None
         self._resolve_worker: threading.Thread | None = None
         self._resolve_stop = threading.Event()
         if resumed_state is not None:
             self._restore_state(resumed_state)
         self._initialize_resolve_state()
+        self._initialize_playback_order_state()
         self._persist_state()
 
     @property
@@ -98,6 +104,34 @@ class PipelineSession:
     @property
     def settings(self) -> PipelineSettings:
         return self._settings
+
+    def resolved_track_status_snapshot(self) -> dict[str, list[bool]]:
+        with self._resolve_lock:
+            return {
+                soundscape_id: [bool(item) for item in status_list]
+                for soundscape_id, status_list in self._state.resolved_track_status.items()
+                if isinstance(status_list, list)
+            }
+
+    def background_resolve_snapshot(self) -> dict[str, object]:
+        with self._resolve_lock:
+            unresolved_soundscape_count = sum(
+                1 for soundscape in self._soundscapes if self._has_unresolved(soundscape.soundscape_id)
+            )
+            queue_list = list(self._resolve_queue)
+            if unresolved_soundscape_count == 0:
+                tier = "idle"
+                target_soundscape = None
+            else:
+                tier = self._background_resolve_tier
+                target_soundscape = self._background_resolve_soundscape_id
+            return {
+                "tier": tier,
+                "target_soundscape": target_soundscape,
+                "queue_length": len(queue_list),
+                "queue": queue_list,
+                "unresolved_soundscape_count": unresolved_soundscape_count,
+            }
 
     def set_transcriber(self, transcriber: Transcriber) -> None:
         self._transcriber = transcriber
@@ -114,15 +148,127 @@ class PipelineSession:
         self._pending_transcription_request = None
         self._transcription_executor.shutdown(wait=False, cancel_futures=True)
 
-    def start_background_resolve(self, soundscape_id: str | None) -> None:
+    def start_background_resolve(
+        self,
+        soundscape_id: str | None,
+        *,
+        prioritized_soundscape_ids: list[str] | None = None,
+        respect_startup_mode: bool = False,
+    ) -> dict[str, object]:
         if soundscape_id is not None and soundscape_id not in self._soundscapes_by_id:
-            return
+            return {
+                "queued_added": [],
+                "queue_after": [],
+                "active_soundscape_id": soundscape_id,
+                "respect_startup_mode": respect_startup_mode,
+                "prioritized_soundscape_ids": prioritized_soundscape_ids or [],
+                "invalid_soundscape_id": True,
+            }
         self._ensure_resolve_worker()
+        queued_added: list[str] = []
         with self._resolve_lock:
+            normalized_prioritized: list[str] = []
+            seen_prioritized: set[str] = set()
+            for candidate in prioritized_soundscape_ids or []:
+                if candidate in self._soundscapes_by_id and candidate not in seen_prioritized:
+                    normalized_prioritized.append(candidate)
+                    seen_prioritized.add(candidate)
+            self._background_prioritized_soundscape_ids = normalized_prioritized
+
+            if respect_startup_mode:
+                prioritized = normalized_prioritized
+                prioritized_set = set(prioritized)
+                startup_candidates: list[str] = []
+                startup_candidates.extend(prioritized)
+                startup_candidates.extend(
+                    soundscape.soundscape_id
+                    for soundscape in self._soundscapes
+                    if soundscape.soundscape_id not in prioritized_set
+                )
+                for candidate in startup_candidates:
+                    if not self._is_startup_preload_all(candidate):
+                        continue
+                    if self._has_unresolved(candidate) and candidate not in self._resolve_queue:
+                        self._resolve_queue.append(candidate)
+                        queued_added.append(candidate)
+            elif normalized_prioritized:
+                for candidate in normalized_prioritized:
+                    if self._has_unresolved(candidate) and candidate not in self._resolve_queue:
+                        self._resolve_queue.append(candidate)
+                        queued_added.append(candidate)
             if soundscape_id is not None and self._has_unresolved(soundscape_id):
-                if soundscape_id not in self._resolve_queue:
+                should_queue_active = True
+                if respect_startup_mode:
+                    should_queue_active = self._is_startup_preload_all(soundscape_id)
+                if should_queue_active and soundscape_id not in self._resolve_queue:
                     self._resolve_queue.append(soundscape_id)
+                    queued_added.append(soundscape_id)
+            queue_after = list(self._resolve_queue)
             self._resolve_cv.notify_all()
+        return {
+            "queued_added": queued_added,
+            "queue_after": queue_after,
+            "active_soundscape_id": soundscape_id,
+            "respect_startup_mode": respect_startup_mode,
+            "prioritized_soundscape_ids": prioritized_soundscape_ids or [],
+            "invalid_soundscape_id": False,
+        }
+
+    def resolve_debug_snapshot(self) -> dict[str, object]:
+        with self._resolve_lock:
+            queue_snapshot = list(self._resolve_queue)
+            summaries: list[dict[str, object]] = []
+            mode_summary: dict[str, int] = {
+                "preload_all": 0,
+                "preload_first": 0,
+                "no_preload": 0,
+            }
+            total_track_count = 0
+            total_resolved_count = 0
+            for soundscape in self._soundscapes:
+                soundscape_id = soundscape.soundscape_id
+                track_count = len(soundscape.tracks)
+                total_track_count += track_count
+                status_list = self._state.resolved_track_status.get(soundscape_id)
+                resolved_count = 0
+                unresolved_count = track_count
+                if isinstance(status_list, list) and len(status_list) == track_count:
+                    resolved_count = sum(1 for item in status_list if bool(item))
+                    unresolved_count = max(0, track_count - resolved_count)
+                total_resolved_count += resolved_count
+                startup_mode = (soundscape.startup_mode or "no_preload").strip().lower()
+                if startup_mode not in mode_summary:
+                    mode_summary[startup_mode] = 0
+                mode_summary[startup_mode] += 1
+                summaries.append(
+                    {
+                        "soundscape_id": soundscape_id,
+                        "startup_mode": startup_mode,
+                        "shuffle": bool(soundscape.shuffle),
+                        "track_count": track_count,
+                        "resolved_count": resolved_count,
+                        "unresolved_count": unresolved_count,
+                        "queue_contains": soundscape_id in queue_snapshot,
+                        "playback_order": self._play_order_for_soundscape(soundscape_id),
+                    }
+                )
+        return {
+            "active_soundscape_id": self._state.active_soundscape_id,
+            "active_collection_id": self._state.active_collection_id,
+            "queue": queue_snapshot,
+            "soundscape_count": len(self._soundscapes),
+            "startup_mode_summary": mode_summary,
+            "total_track_count": total_track_count,
+            "total_resolved_count": total_resolved_count,
+            "soundscapes": summaries,
+        }
+
+    def _is_startup_preload_all(self, soundscape_id: str) -> bool:
+        soundscape = self._soundscapes_by_id.get(soundscape_id)
+        if soundscape is None:
+            return False
+        startup_mode = (soundscape.startup_mode or "no_preload").strip().lower()
+        return startup_mode == "preload_all"
 
     def update_runtime_settings(
         self,
@@ -172,28 +318,42 @@ class PipelineSession:
     def warm_resolve_tracks(self) -> list[PipelineEvent]:
         events: list[PipelineEvent] = []
         self._initialize_resolve_state()
+        self._initialize_playback_order_state()
         for soundscape in self._soundscapes:
             if not soundscape.tracks:
                 continue
-            resolved = self._resolve_track_at_index(soundscape.soundscape_id, 0)
-            if resolved is None:
-                source = soundscape.tracks[0].source
+            order = self._play_order_for_soundscape(soundscape.soundscape_id)
+            if not order:
+                continue
+
+            startup_mode = (soundscape.startup_mode or "no_preload").strip().lower()
+            if startup_mode == "no_preload":
+                continue
+            if startup_mode == "preload_all":
+                preload_indexes = order
+            else:
+                preload_indexes = [order[0]]
+
+            for track_index in preload_indexes:
+                resolved = self._resolve_track_at_index(soundscape.soundscape_id, track_index)
+                if resolved is None:
+                    source = soundscape.tracks[track_index].source
+                    events.append(
+                        PipelineEvent(
+                            event_type="resolve_error",
+                            message=f"[{soundscape.soundscape_id}] failed to resolve {source!r}",
+                        )
+                    )
+                    continue
                 events.append(
                     PipelineEvent(
-                        event_type="resolve_error",
-                        message=f"[{soundscape.soundscape_id}] failed to resolve {source!r}",
+                        event_type="track_resolved",
+                        message=(
+                            f"[{soundscape.soundscape_id}] {resolved.title}"
+                            + (f" ({resolved.duration_seconds:.0f}s)" if resolved.duration_seconds else "")
+                        ),
                     )
                 )
-                continue
-            events.append(
-                PipelineEvent(
-                    event_type="track_resolved",
-                    message=(
-                        f"[{soundscape.soundscape_id}] {resolved.title}"
-                        + (f" ({resolved.duration_seconds:.0f}s)" if resolved.duration_seconds else "")
-                    ),
-                )
-            )
         self._persist_state()
         return events
 
@@ -223,7 +383,10 @@ class PipelineSession:
             return None
         self._state.active_soundscape_id = soundscape_id
         self._state.active_track_index = track_index
-        self._state.next_track_index_by_soundscape[soundscape_id] = (track_index + 1) % total
+        self._state.next_track_index_by_soundscape[soundscape_id] = self._next_order_position_after_track(
+            soundscape_id,
+            track_index,
+        )
         self._append_log(
             "track_selected",
             soundscape=soundscape_id,
@@ -238,14 +401,16 @@ class PipelineSession:
         return self.track_at_soundscape_index(collection_id, track_index)
 
     def _select_next_track_index(self, soundscape_id: str) -> int | None:
-        total = self._soundscape_track_count(soundscape_id)
+        order = self._play_order_for_soundscape(soundscape_id)
+        total = len(order)
         if total == 0:
             return None
 
-        current_index = self._state.next_track_index_by_soundscape.get(soundscape_id, 0) % total
-        self._state.next_track_index_by_soundscape[soundscape_id] = (current_index + 1) % total
-        self._state.active_track_index = current_index
-        return current_index
+        current_position = self._state.next_track_index_by_soundscape.get(soundscape_id, 0) % total
+        self._state.next_track_index_by_soundscape[soundscape_id] = (current_position + 1) % total
+        track_index = order[current_position]
+        self._state.active_track_index = track_index
+        return track_index
 
     def _resolve_next_track(self, soundscape_id: str) -> tuple[ResolvedTrack | None, int | None]:
         total = self._soundscape_track_count(soundscape_id)
@@ -289,37 +454,65 @@ class PipelineSession:
     def _resolve_worker_main(self) -> None:
         while not self._resolve_stop.is_set():
             soundscape_id = None
+            selected_tier = "idle"
             with self._resolve_lock:
                 while not self._resolve_stop.is_set() and soundscape_id is None:
                     while self._resolve_queue and soundscape_id is None:
                         candidate = self._resolve_queue.popleft()
                         if self._has_unresolved(candidate):
                             soundscape_id = candidate
+                            selected_tier = "explicit_queue"
                     if soundscape_id is None:
-                        soundscape_id = self._find_next_unresolved_soundscape()
+                        soundscape_id, selected_tier = self._find_next_unresolved_soundscape_locked()
                     if soundscape_id is None:
+                        self._background_resolve_tier = "idle"
+                        self._background_resolve_soundscape_id = None
                         self._resolve_cv.wait(timeout=0.5)
+                    else:
+                        self._background_resolve_tier = selected_tier
+                        self._background_resolve_soundscape_id = soundscape_id
             if soundscape_id is None:
                 continue
             self._resolve_soundscape_tracks(soundscape_id)
 
     def _resolve_soundscape_tracks(self, soundscape_id: str) -> None:
-        total = self._soundscape_track_count(soundscape_id)
-        if total == 0:
+        order = self._resolution_order_for_soundscape(soundscape_id)
+        if not order:
             return
-        for index in range(total):
+        for index in order:
             if self._resolve_stop.is_set():
                 break
             self._resolve_track_at_index(soundscape_id, index)
 
-    def _find_next_unresolved_soundscape(self) -> str | None:
-        active_id = self._state.active_soundscape_id
-        if active_id and self._has_unresolved(active_id):
-            return active_id
+    def _find_next_unresolved_soundscape_locked(self) -> tuple[str | None, str]:
+        active_soundscape_id = self._state.active_soundscape_id
+        if active_soundscape_id and self._has_unresolved(active_soundscape_id):
+            return active_soundscape_id, "active_soundscape"
+
+        for soundscape_id in self._background_prioritized_soundscape_ids:
+            if self._has_unresolved(soundscape_id):
+                return soundscape_id, "prioritized_soundscape"
+
         for soundscape in self._soundscapes:
             if self._has_unresolved(soundscape.soundscape_id):
-                return soundscape.soundscape_id
-        return None
+                return soundscape.soundscape_id, "global_fallback"
+
+        return None, "idle"
+
+    def _resolution_order_for_soundscape(self, soundscape_id: str) -> list[int]:
+        order = self._play_order_for_soundscape(soundscape_id)
+        total = len(order)
+        if total <= 1:
+            return order
+
+        next_position = self._state.next_track_index_by_soundscape.get(soundscape_id, 0)
+        if not isinstance(next_position, int):
+            next_position = 0
+        next_position %= total
+
+        if next_position == 0:
+            return order
+        return order[next_position:] + order[:next_position]
 
     def _has_unresolved(self, soundscape_id: str) -> bool:
         status_list = self._state.resolved_track_status.get(soundscape_id)
@@ -487,6 +680,17 @@ class PipelineSession:
                     restored_indexes[soundscape_id] = index
             self._state.next_track_index_by_soundscape = restored_indexes
 
+        playback_order = payload.get("playback_order_by_soundscape")
+        if isinstance(playback_order, dict):
+            restored_playback_order: dict[str, list[int]] = {}
+            for soundscape_id, indexes in playback_order.items():
+                if soundscape_id not in self._soundscapes_by_id or not isinstance(indexes, list):
+                    continue
+                normalized_indexes = [index for index in indexes if isinstance(index, int) and index >= 0]
+                if normalized_indexes:
+                    restored_playback_order[soundscape_id] = normalized_indexes
+            self._state.playback_order_by_soundscape = restored_playback_order
+
         cooldown_remaining = payload.get("cooldown_remaining")
         if isinstance(cooldown_remaining, int) and cooldown_remaining > 0:
             self._state.cooldown_until_epoch = time.time() + cooldown_remaining
@@ -625,3 +829,67 @@ class PipelineSession:
         )
         self._persist_state()
         return events
+
+    def _initialize_playback_order_state(self) -> None:
+        for soundscape in self._soundscapes:
+            track_count = len(soundscape.tracks)
+            if track_count <= 0:
+                continue
+
+            if soundscape.shuffle:
+                existing_order = self._state.playback_order_by_soundscape.get(soundscape.soundscape_id)
+                if self._is_valid_order(existing_order, track_count):
+                    order = list(existing_order)
+                else:
+                    order = self._seeded_shuffle_order(soundscape.soundscape_id, track_count)
+            else:
+                order = list(range(track_count))
+
+            self._state.playback_order_by_soundscape[soundscape.soundscape_id] = order
+
+            next_position = self._state.next_track_index_by_soundscape.get(soundscape.soundscape_id, 0)
+            if not isinstance(next_position, int) or next_position < 0:
+                self._state.next_track_index_by_soundscape[soundscape.soundscape_id] = 0
+            elif next_position >= track_count:
+                self._state.next_track_index_by_soundscape[soundscape.soundscape_id] = next_position % track_count
+
+    @staticmethod
+    def _is_valid_order(order: object, track_count: int) -> bool:
+        if not isinstance(order, list) or len(order) != track_count:
+            return False
+        if not all(isinstance(item, int) and 0 <= item < track_count for item in order):
+            return False
+        return len(set(order)) == track_count
+
+    def _seeded_shuffle_order(self, soundscape_id: str, track_count: int) -> list[int]:
+        seed_material = f"{self._state.session_id}:{soundscape_id}".encode("utf-8")
+        seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:8], "big")
+        order = list(range(track_count))
+        random.Random(seed).shuffle(order)
+        return order
+
+    def _play_order_for_soundscape(self, soundscape_id: str) -> list[int]:
+        soundscape = self._soundscapes_by_id.get(soundscape_id)
+        if soundscape is None:
+            return []
+        track_count = len(soundscape.tracks)
+        if track_count <= 0:
+            return []
+
+        order = self._state.playback_order_by_soundscape.get(soundscape_id)
+        if self._is_valid_order(order, track_count):
+            return list(order)
+
+        fallback = list(range(track_count))
+        self._state.playback_order_by_soundscape[soundscape_id] = fallback
+        return fallback
+
+    def _next_order_position_after_track(self, soundscape_id: str, track_index: int) -> int:
+        order = self._play_order_for_soundscape(soundscape_id)
+        if not order:
+            return 0
+        try:
+            position = order.index(track_index)
+        except ValueError:
+            return 0
+        return (position + 1) % len(order)

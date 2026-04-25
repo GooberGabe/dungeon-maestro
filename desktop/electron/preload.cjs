@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('dungeonMaestro', {
   togglePinnedHud: () => ipcRenderer.invoke('window:toggle-pinned-hud'),
   startSession: (payload) => ipcRenderer.invoke('session:start', payload),
   updateSessionSettings: (payload) => ipcRenderer.invoke('session:update-settings', payload),
+  updateResolvePriorities: (prioritizedSoundscapeIds) => ipcRenderer.invoke('session:update-resolve-priorities', prioritizedSoundscapeIds),
   updatePlaybackSettings: (payload) => ipcRenderer.invoke('playback:update-settings', payload),
   seekTrack: (positionSeconds) => ipcRenderer.invoke('playback:seek', positionSeconds),
   endSession: () => ipcRenderer.invoke('session:end'),

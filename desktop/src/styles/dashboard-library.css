@@ -381,6 +381,13 @@
   text-transform: uppercase;
 }
 
+.track-preloaded-indicator {
+  width: 17px;
+  height: 17px;
+  margin-left: -4px;
+  opacity: 0.9;
+}
+
 .track-type-chip {
   padding: 6px 10px;
   font-size: 0.76rem;

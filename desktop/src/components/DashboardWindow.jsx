@@ -77,6 +77,7 @@ function DashboardWindow({
   handleCrossfadeDurationChange,
   handleCrossfadePauseToggle,
   handleCrossfadeToggle,
+  handleLoopTrackByDefaultToggle,
   handleOutputModeChange,
   handlePlaybackVolumeChange,
   handleTranscriptionProfileChange,
@@ -89,6 +90,7 @@ function DashboardWindow({
   isSoundscapeEditing,
   lastError,
   lastTranscript,
+  loopTrackByDefault,
   loopEnabled,
   filteredSoundscapes,
   librarySearchQuery,
@@ -320,7 +322,6 @@ function DashboardWindow({
           <FeedWorkspace
             bootstrap={bootstrap}
             lastError={lastError}
-            lastTranscript={lastTranscript}
             settings={settings}
             state={state}
           />
@@ -332,6 +333,7 @@ function DashboardWindow({
             handleCrossfadeDurationChange={handleCrossfadeDurationChange}
             handleCrossfadeToggle={handleCrossfadeToggle}
             handleCrossfadePauseToggle={handleCrossfadePauseToggle}
+            handleLoopTrackByDefaultToggle={handleLoopTrackByDefaultToggle}
             crossfadePauseEnabled={crossfadePauseEnabled}
             handlePlaybackVolumeChange={handlePlaybackVolumeChange}
             handleTranscriptionProfileChange={handleTranscriptionProfileChange}
@@ -341,6 +343,7 @@ function DashboardWindow({
             isSessionActive={isSessionActive}
             isSessionStarting={isSessionStarting}
             lastTranscript={lastTranscript}
+            loopTrackByDefault={loopTrackByDefault}
             loopEnabled={loopEnabled}
             playbackPaused={playbackPaused}
             playbackRouteLabel={playbackRouteLabel}

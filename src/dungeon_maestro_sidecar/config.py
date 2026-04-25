@@ -231,6 +231,12 @@ def _parse_soundscapes(raw_soundscapes: object) -> list[Soundscape]:
             raise ConfigError(
                 f"soundscapes.{soundscape_id}.playback.mode={playback_mode!r} is not supported yet"
             )
+        shuffle = bool(playback.get("shuffle", False))
+        startup_mode = str(playback.get("startup_mode", "no_preload")).strip().lower()
+        if startup_mode not in {"preload_all", "preload_first", "no_preload"}:
+            raise ConfigError(
+                f"soundscapes.{soundscape_id}.playback.startup_mode={startup_mode!r} must be one of preload_all, preload_first, or no_preload"
+            )
 
         soundscapes.append(
             Soundscape(
@@ -239,6 +245,8 @@ def _parse_soundscapes(raw_soundscapes: object) -> list[Soundscape]:
                 keywords=normalized_keywords,
                 tracks=parsed_tracks,
                 playback_mode=playback_mode,
+                shuffle=shuffle,
+                startup_mode=startup_mode,
             )
         )
 

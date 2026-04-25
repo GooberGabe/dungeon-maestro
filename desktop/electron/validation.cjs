@@ -119,7 +119,14 @@ function validateCollectionEdits(collectionId, payload) {
     seenTracks.add(dedupeKey)
   }
 
-  return { collectionId: normalizedId, name, keywords, tracks }
+  const shuffle = Boolean(payload?.shuffle)
+  const startupModeCandidate = normalizeTextInput(payload?.startupMode).toLowerCase()
+  const startupMode = startupModeCandidate || 'no_preload'
+  if (!['preload_all', 'preload_first', 'no_preload'].includes(startupMode)) {
+    throw new Error('Soundscape startup mode must be preload_all, preload_first, or no_preload')
+  }
+
+  return { collectionId: normalizedId, name, keywords, tracks, shuffle, startupMode }
 }
 
 function validateSoundscapeEdits(soundscapeId, payload) {

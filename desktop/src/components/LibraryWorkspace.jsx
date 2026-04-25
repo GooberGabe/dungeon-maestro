@@ -52,7 +52,8 @@ function LibraryWorkspace({
   const [dragOverTrackZone, setDragOverTrackZone] = useState('')
   const activeSoundscapeId = state.activeSoundscape || state.activeCollection || ''
   const focusedSoundscapeId = getSoundscapeId(libraryFocusSoundscape)
-  const canReorderTracks = Boolean(focusedSoundscapeId) && !isSoundscapeEditing
+  const resolvedTrackStatusBySoundscape = state.resolvedTrackStatusBySoundscape || {}
+  const canReorderTracks = Boolean(focusedSoundscapeId) && !isSoundscapeEditing && !isSessionActive
 
   const handleTrackDragStart = (event, trackIndex) => {
     if (!canReorderTracks) {
@@ -126,6 +127,9 @@ function LibraryWorkspace({
   }
 
   const openSoundscapeContextMenu = (event, soundscape) => {
+    if (isSessionActive) {
+      return
+    }
     const soundscapeId = getSoundscapeId(soundscape)
     if (!soundscapeId || soundscape.isDraft) {
       return
@@ -144,7 +148,12 @@ function LibraryWorkspace({
     if (!focusedSoundscapeId) {
       return
     }
-    const deleteDisabled = trackCount <= 1
+    const parsedTrackCount = Number.isInteger(trackCount) ? trackCount : 0
+    const metadataTrackCount = Number.isInteger(libraryFocusSoundscape?.trackCount)
+      ? libraryFocusSoundscape.trackCount
+      : Number.parseInt(String(libraryFocusSoundscape?.trackCount || 0), 10) || 0
+    const effectiveTrackCount = Math.max(parsedTrackCount, metadataTrackCount)
+    const deleteDisabled = effectiveTrackCount <= 1
     openContextMenu(event, [
       {
         id: `delete-track-${focusedSoundscapeId}-${index}`,
@@ -162,7 +171,7 @@ function LibraryWorkspace({
       {
         id: `move-track-down-${focusedSoundscapeId}-${index}`,
         label: 'Move Down',
-        disabled: index === trackCount - 1,
+        disabled: index === effectiveTrackCount - 1,
         onSelect: () => (isSoundscapeEditing ? moveDraftTrackAtIndex(index, 1) : moveSoundscapeTrack(focusedSoundscapeId, index, 1)),
       },
     ])
@@ -176,7 +185,14 @@ function LibraryWorkspace({
             <p className="eyebrow">Soundscapes</p>
             <h2>Library</h2>
           </div>
-          <button className="editor-icon-button library-create-button" type="button" onClick={createSoundscape} disabled={isSoundscapeEditing} aria-label="Create soundscape" title="Create soundscape">
+          <button
+            className="editor-icon-button library-create-button"
+            type="button"
+            onClick={createSoundscape}
+            disabled={isSoundscapeEditing || isSessionActive}
+            aria-label="Create soundscape"
+            title={isSessionActive ? 'End the active session to create soundscapes.' : 'Create soundscape'}
+          >
             +
           </button>
         </div>
@@ -257,7 +273,15 @@ function LibraryWorkspace({
                 const handleClick = showPause || showResume ? togglePlaybackPause : () => switchSoundscape(focusedSoundscapeId)
                 return (
                   <div className="button-row detail-action-row compact-action-row">
-                    <button className="ghost-button" type="button" onClick={startSoundscapeEdit}>Edit</button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={startSoundscapeEdit}
+                      disabled={isSessionActive}
+                      title={isSessionActive ? 'End the active session to edit soundscapes.' : 'Edit this soundscape'}
+                    >
+                      Edit
+                    </button>
                     <button className="ghost-button" type="button" onClick={openUseSoundscapeDialog}>Use</button>
                     <button
                       className="detail-play-button"
@@ -299,7 +323,22 @@ function LibraryWorkspace({
               </div>
               <div>
                 <span className="metric-label">Settings</span>
-                <span className="supporting-text">No settings configured.</span>
+                {isSoundscapeEditing ? (
+                  <div className="settings-stack">
+                    <label className="settings-row toggle-row">
+                      <span className="settings-name">Shuffle</span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(soundscapeDraft?.shuffle)}
+                        onChange={(event) => setSoundscapeDraftField('shuffle', event.target.checked)}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <span className="supporting-text">
+                    {libraryFocusSoundscape.shuffle ? 'Shuffle On' : 'Shuffle Off'}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -388,17 +427,6 @@ function LibraryWorkspace({
                   const nextTrackIndex = (index + 1) < (libraryFocusSoundscape?.tracks || []).length ? index + 1 : TRACK_DROP_ZONE_END
                   const showPause = isNowPlaying && !playbackPaused
                   const showResume = isNowPlaying && playbackPaused
-                  const buttonDisabled = !trackPlayable || isSessionStarting
-                  const buttonTitle = !trackPlayable
-                    ? 'Session is not active.'
-                    : isSessionStarting
-                      ? 'Session is preparing...'
-                      : showPause
-                        ? 'Pause playback'
-                        : showResume
-                          ? 'Resume playback'
-                          : 'Play this track'
-                  const handlePlayClick = showPause || showResume ? togglePlaybackPause : () => playSoundscapeTrackAtIndex(focusedSoundscapeId, index)
                   return (
                   <div
                     key={`${focusedSoundscapeId}-track-${index}`}
@@ -475,6 +503,21 @@ function LibraryWorkspace({
                               {preview?.ok && preview.durationSeconds ? (
                                 <span className="track-preview-duration">{formatDuration(preview.durationSeconds)}</span>
                               ) : null}
+                              {(() => {
+                                const trackStatus = Array.isArray(resolvedTrackStatusBySoundscape[focusedSoundscapeId])
+                                  ? resolvedTrackStatusBySoundscape[focusedSoundscapeId][index]
+                                  : false
+                                const isTrackLoaded = Boolean(trackStatus)
+                                return isSessionActive && isTrackLoaded ? (
+                                  <img
+                                    className="track-preloaded-indicator"
+                                    src="/confirmed.svg"
+                                    alt="Preloaded"
+                                    title="Track preloaded"
+                                    draggable={false}
+                                  />
+                                ) : null
+                              })()}
                               {preview?.status === 'ready' && !preview.ok ? (
                                 <span className="track-preview-copy caution">Preview unavailable</span>
                               ) : null}
@@ -483,27 +526,59 @@ function LibraryWorkspace({
                         )
                       })()}
                     </div>
-                    {isSoundscapeEditing ? (
-                      <button className="track-remove-button" type="button" onClick={() => removeTrackAtIndex(index)} aria-label={`Remove track ${index + 1}`} title="Remove track">
-                        X
-                      </button>
-                    ) : (
-                      <button
-                        className="detail-play-button collection-play-button"
-                        type="button"
-                        onClick={handlePlayClick}
-                        disabled={buttonDisabled}
-                        draggable={false}
-                        title={buttonTitle}
-                      >
-                        <img
-                          src={buttonDisabled ? '/play-button-grayed-out.svg' : showPause ? '/pause-button.svg' : '/play-button.svg'}
-                          alt={showPause ? 'Pause' : showResume ? 'Resume' : 'Play'}
+                    {(() => {
+                      const normalizedTrackSource = trackSource.trim()
+                      const preview = normalizedTrackSource
+                        ? (trackPreviewState[normalizedTrackSource] || (bootstrapPreview ? {
+                          status: 'ready',
+                          source: normalizedTrackSource,
+                          ok: Boolean(bootstrapPreview.ok),
+                          title: bootstrapPreview.title || '',
+                          webpageUrl: bootstrapPreview.webpage_url || '',
+                          durationSeconds: bootstrapPreview.duration_seconds ?? null,
+                          message: bootstrapPreview.message || '',
+                        } : null))
+                        : null
+                      const trackStatus = Array.isArray(resolvedTrackStatusBySoundscape[focusedSoundscapeId])
+                        ? resolvedTrackStatusBySoundscape[focusedSoundscapeId][index]
+                        : false
+                      const isTrackLoaded = Boolean(trackStatus)
+                      const buttonDisabled = !trackPlayable || isSessionStarting || !isTrackLoaded
+                      const buttonTitle = !trackPlayable
+                        ? 'Session is not active.'
+                        : isSessionStarting
+                          ? 'Session is preparing...'
+                          : !isTrackLoaded
+                            ? 'Track is still loading.'
+                            : showPause
+                              ? 'Pause playback'
+                              : showResume
+                                ? 'Resume playback'
+                                : 'Play this track'
+                      const handlePlayClick = showPause || showResume ? togglePlaybackPause : () => playSoundscapeTrackAtIndex(focusedSoundscapeId, index)
+
+                      return isSoundscapeEditing ? (
+                        <button className="track-remove-button" type="button" onClick={() => removeTrackAtIndex(index)} aria-label={`Remove track ${index + 1}`} title="Remove track">
+                          X
+                        </button>
+                      ) : (
+                        <button
+                          className="detail-play-button collection-play-button"
+                          type="button"
+                          onClick={handlePlayClick}
+                          disabled={buttonDisabled}
                           draggable={false}
-                          style={{ width: 'var(--icon-lg)', height: 'var(--icon-lg)' }}
-                        />
-                      </button>
-                    )}
+                          title={buttonTitle}
+                        >
+                          <img
+                            src={buttonDisabled ? '/play-button-grayed-out.svg' : showPause ? '/pause-button.svg' : '/play-button.svg'}
+                            alt={showPause ? 'Pause' : showResume ? 'Resume' : 'Play'}
+                            draggable={false}
+                            style={{ width: 'var(--icon-lg)', height: 'var(--icon-lg)' }}
+                          />
+                        </button>
+                      )
+                    })()}
                     </div>
                     {!isSoundscapeEditing ? (
                       <div

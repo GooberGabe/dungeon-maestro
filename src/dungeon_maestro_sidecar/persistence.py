@@ -32,6 +32,7 @@ class SessionStateStore:
             "active_collection": state.active_collection_id,
             "track_index": state.active_track_index,
             "cooldown_remaining": cooldown_remaining,
+            "playback_order_by_soundscape": state.playback_order_by_soundscape,
             "next_track_index_by_soundscape": state.next_track_index_by_soundscape,
             "next_track_index_by_collection": state.next_track_index_by_collection,
             "log": state.session_log,

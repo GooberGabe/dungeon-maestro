@@ -11,6 +11,8 @@ function CollectionPickerModal({
   soundscape,
   title,
 }) {
+  const canCreateCollection = Boolean((newCollectionNameDraft || '').trim())
+
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="panel collection-picker-modal" role="dialog" aria-modal="true" aria-labelledby="collection-picker-title">
@@ -67,7 +69,7 @@ function CollectionPickerModal({
               onChange={(event) => setNewCollectionNameDraft(event.target.value)}
               placeholder="Friday Night Session"
             />
-            <button className="primary-button" type="button" onClick={confirmCreateCollection}>
+            <button className="primary-button" type="button" onClick={confirmCreateCollection} disabled={!canCreateCollection}>
               Create
             </button>
           </div>

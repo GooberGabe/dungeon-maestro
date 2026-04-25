@@ -62,6 +62,26 @@ function loadDesktopSettings() {
     desktopSettings.discordGuildId = normalizeDiscordId(desktopSettings.discordGuildId)
     desktopSettings.discordVoiceChannelId = normalizeDiscordId(desktopSettings.discordVoiceChannelId)
     desktopSettings.outputMode = normalizeOutputMode(desktopSettings.outputMode)
+    const parsedVolumePercent = Number.parseInt(desktopSettings.volumePercent, 10)
+    desktopSettings.volumePercent = Number.isFinite(parsedVolumePercent) ? Math.max(0, Math.min(100, parsedVolumePercent)) : 100
+    desktopSettings.playbackMuted = Boolean(desktopSettings.playbackMuted)
+    desktopSettings.crossfadeEnabled = Boolean(desktopSettings.crossfadeEnabled)
+    const parsedCrossfadeDurationSeconds = Number.parseFloat(desktopSettings.crossfadeDurationSeconds)
+    desktopSettings.crossfadeDurationSeconds = Number.isFinite(parsedCrossfadeDurationSeconds)
+      ? Math.max(0.5, Math.min(15, parsedCrossfadeDurationSeconds))
+      : 3.0
+    desktopSettings.loopTrackByDefault = Boolean(desktopSettings.loopTrackByDefault)
+    desktopSettings.loopEnabled = Boolean(desktopSettings.loopEnabled)
+    desktopSettings.crossfadePauseEnabled = Boolean(desktopSettings.crossfadePauseEnabled)
+    desktopSettings.transcriptionEnabled = desktopSettings.transcriptionEnabled === true
+    desktopSettings.transcriptionProfile = typeof desktopSettings.transcriptionProfile === 'string' && desktopSettings.transcriptionProfile
+      ? desktopSettings.transcriptionProfile
+      : 'fast'
+    desktopSettings.transitionProposalsEnabled = desktopSettings.transitionProposalsEnabled === true
+    const parsedTransitionTimeoutSeconds = Number.parseInt(desktopSettings.transitionTimeoutSeconds, 10)
+    desktopSettings.transitionTimeoutSeconds = Number.isFinite(parsedTransitionTimeoutSeconds)
+      ? Math.max(5, Math.min(300, parsedTransitionTimeoutSeconds))
+      : 30
     const rawTrackPreviewCache = desktopSettings.trackPreviewCache && typeof desktopSettings.trackPreviewCache === 'object'
       ? desktopSettings.trackPreviewCache
       : {}
@@ -103,6 +123,8 @@ function loadAppConfig(configPath) {
     }) : [],
     trackCount: Array.isArray(value.tracks) ? value.tracks.length : 0,
     playbackMode: value.playback?.mode || 'sequential_loop',
+    shuffle: Boolean(value.playback?.shuffle),
+    startupMode: value.playback?.startup_mode || 'no_preload',
   }))
   const collections = parseCollections(getCollectionsMap(parsed), soundscapes)
 

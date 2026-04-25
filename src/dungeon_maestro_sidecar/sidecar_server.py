@@ -38,6 +38,11 @@ class SidecarServer:
             "crossfadeDurationSeconds": 3.0,
             "loopEnabled": False,
             "crossfadePauseEnabled": False,
+            "resolvedTrackStatusBySoundscape": {},
+            "resolveBackgroundTier": "idle",
+            "resolveBackgroundTargetSoundscape": None,
+            "resolveBackgroundQueueLength": 0,
+            "resolveBackgroundUnresolvedSoundscapeCount": 0,
         }
 
     async def handle_connection(self, websocket) -> None:
@@ -93,6 +98,9 @@ class SidecarServer:
                 discord_voice_channel_id=_optional_int(payload.get("discord_voice_channel_id")),
                 crossfade_enabled=_optional_bool(payload.get("crossfade_enabled")),
                 crossfade_duration_seconds=_optional_float(payload.get("crossfade_duration_seconds")),
+                loop_enabled=_optional_bool(payload.get("loop_enabled")),
+                crossfade_pause_enabled=_optional_bool(payload.get("crossfade_pause_enabled")),
+                prioritized_soundscape_ids=_optional_str_list(payload.get("prioritized_soundscape_ids")),
             )
             self._runtime = LiveSessionRuntime(options, on_event=self._threadsafe_emit)
             self._last_status = {
@@ -155,6 +163,15 @@ class SidecarServer:
             self._last_status = await asyncio.to_thread(
                 self._runtime.update_output_mode,
                 normalize_output_mode(payload.get("output_mode")),
+            )
+            return self._last_status
+
+        if command == "update_resolve_priorities":
+            if self._runtime is None:
+                raise RuntimeError("Session is not running")
+            self._last_status = await asyncio.to_thread(
+                self._runtime.update_resolve_priorities,
+                prioritized_soundscape_ids=_optional_str_list(payload.get("prioritized_soundscape_ids")),
             )
             return self._last_status
 
@@ -292,6 +309,27 @@ class SidecarServer:
             self._last_status["transcriptionProfile"] = payload.get("transcription_profile", self._last_status["transcriptionProfile"])
         elif event_name == "output_mode_updated":
             self._last_status["outputMode"] = payload.get("outputMode", self._last_status["outputMode"])
+        elif event_name == "resolve_status_updated":
+            self._last_status["resolvedTrackStatusBySoundscape"] = payload.get(
+                "resolvedTrackStatusBySoundscape",
+                payload.get("resolved_track_status_by_soundscape", self._last_status.get("resolvedTrackStatusBySoundscape", {})),
+            )
+            self._last_status["resolveBackgroundTier"] = payload.get(
+                "resolveBackgroundTier",
+                payload.get("resolve_background_tier", self._last_status.get("resolveBackgroundTier", "idle")),
+            )
+            self._last_status["resolveBackgroundTargetSoundscape"] = payload.get(
+                "resolveBackgroundTargetSoundscape",
+                payload.get("resolve_background_target_soundscape", self._last_status.get("resolveBackgroundTargetSoundscape")),
+            )
+            self._last_status["resolveBackgroundQueueLength"] = payload.get(
+                "resolveBackgroundQueueLength",
+                payload.get("resolve_background_queue_length", self._last_status.get("resolveBackgroundQueueLength", 0)),
+            )
+            self._last_status["resolveBackgroundUnresolvedSoundscapeCount"] = payload.get(
+                "resolveBackgroundUnresolvedSoundscapeCount",
+                payload.get("resolve_background_unresolved_soundscape_count", self._last_status.get("resolveBackgroundUnresolvedSoundscapeCount", 0)),
+            )
         elif event_name in {"transition_dismissed", "transition_approved"}:
             self._last_status["pendingTransition"] = None
         elif event_name == "session_ended":
@@ -330,6 +368,20 @@ def _optional_float(value: Any) -> float | None:
     if value in (None, ""):
         return None
     return float(value)
+
+
+def _optional_str_list(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return None
+    normalized: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                normalized.append(text)
+    return normalized
 
 
 async def run_server(host: str, port: int) -> None:

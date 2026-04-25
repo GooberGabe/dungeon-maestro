@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import DashboardWindow from './components/DashboardWindow'
 import PinnedHud from './components/PinnedHud'
 import { ICONS, VIEW_MODE, getActiveSoundscapeId, getDefaultSoundscapeId, getSoundscapeId, getSoundscapeList } from './constants'
 import { createNewSoundscapeDraft, createSoundscapeDraft, validateSoundscapeDraft } from './libraryEditor'
+
+const SOUNDSCAPE_EDIT_BLOCKED_MESSAGE = 'Soundscapes cannot be edited while a session is active. End the session to edit soundscapes.'
+const COLLECTION_NAME_REQUIRED_MESSAGE = 'Collection name cannot be empty.'
 
 function App() {
   const [bootstrap, setBootstrap] = useState(null)
@@ -35,7 +38,8 @@ function App() {
   const [sessionActionPending, setSessionActionPending] = useState(false)
   const [bootstrapError, setBootstrapError] = useState('')
   const [outputMode, setOutputMode] = useState('local')
-  const [transcriptionEnabled, setTranscriptionEnabled] = useState(true)
+  const resolvePrioritySignatureRef = useRef('')
+  const [transcriptionEnabled, setTranscriptionEnabled] = useState(false)
   const [transcriptionProfile, setTranscriptionProfile] = useState('fast')
   const [transitionProposalsEnabled, setTransitionProposalsEnabled] = useState(true)
   const [transitionTimeoutSeconds, setTransitionTimeoutSeconds] = useState(30)
@@ -44,6 +48,7 @@ function App() {
   const [playbackPaused, setPlaybackPaused] = useState(false)
   const [crossfadeEnabled, setCrossfadeEnabled] = useState(false)
   const [crossfadeDurationSeconds, setCrossfadeDurationSeconds] = useState(3.0)
+  const [loopTrackByDefault, setLoopTrackByDefault] = useState(false)
   const [loopEnabled, setLoopEnabled] = useState(false)
   const [crossfadePauseEnabled, setCrossfadePauseEnabled] = useState(false)
   const isHudWindow = VIEW_MODE === 'hud'
@@ -67,18 +72,29 @@ function App() {
     window.dungeonMaestro.getBootstrapData()
       .then((data) => {
         const activeSoundscapeId = getActiveSoundscapeId(data.state, data)
+        const bootstrapTranscriptionProfile = data.settings?.transcriptionProfile
+          || data.state.transcriptionProfile
+          || data.config.settings.transcription_profile
+          || 'fast'
+        const bootstrapTransitionTimeoutSeconds = Number(
+          data.settings?.transitionTimeoutSeconds
+          ?? data.config.settings.transition_popup_timeout
+          ?? 30
+        )
         setBootstrap(data)
         setOutputMode(data.state.outputMode || data.settings.outputMode || 'local')
         setBotTokenDraft(data.settings.botToken || '')
         setSelectedLibrarySoundscapeId(activeSoundscapeId)
-        setTransitionProposalsEnabled(data.config.settings.enable_transition_proposals !== false)
-        setTranscriptionProfile(data.state.transcriptionProfile || data.config.settings.transcription_profile || 'fast')
-        setTransitionTimeoutSeconds(Number(data.config.settings.transition_popup_timeout || 30))
+        setTranscriptionEnabled(false)
+        setTransitionProposalsEnabled(false)
+        setTranscriptionProfile(bootstrapTranscriptionProfile)
+        setTransitionTimeoutSeconds(bootstrapTransitionTimeoutSeconds)
         setPlaybackVolumePercent(Number(data.state.volumePercent ?? 100))
         setPlaybackMuted(Boolean(data.state.playbackMuted))
         setPlaybackPaused(Boolean(data.state.playbackPaused))
         setCrossfadeEnabled(Boolean(data.state.crossfadeEnabled))
         setCrossfadeDurationSeconds(Number(data.state.crossfadeDurationSeconds ?? 3.0))
+        setLoopTrackByDefault(Boolean(data.state.loopTrackByDefault ?? data.settings?.loopTrackByDefault ?? false))
         setLoopEnabled(Boolean(data.state.loopEnabled))
         setCrossfadePauseEnabled(Boolean(data.state.crossfadePauseEnabled))
       })
@@ -88,14 +104,27 @@ function App() {
 
     try {
       unsubscribe = window.dungeonMaestro.onStateChanged((data) => {
+        const bootstrapTranscriptionProfile = data.settings?.transcriptionProfile
+          || data.state.transcriptionProfile
+          || data.config.settings.transcription_profile
+          || 'fast'
+        const bootstrapTransitionTimeoutSeconds = Number(
+          data.settings?.transitionTimeoutSeconds
+          ?? data.config.settings.transition_popup_timeout
+          ?? 30
+        )
         setBootstrap(data)
         setOutputMode(data.state.outputMode || data.settings.outputMode || 'local')
-        setTranscriptionProfile(data.state.transcriptionProfile || data.config.settings.transcription_profile || 'fast')
+        setTranscriptionEnabled(false)
+        setTransitionProposalsEnabled(false)
+        setTranscriptionProfile(bootstrapTranscriptionProfile)
+        setTransitionTimeoutSeconds(bootstrapTransitionTimeoutSeconds)
         setPlaybackVolumePercent(Number(data.state.volumePercent ?? 100))
         setPlaybackMuted(Boolean(data.state.playbackMuted))
         setPlaybackPaused(Boolean(data.state.playbackPaused))
         setCrossfadeEnabled(Boolean(data.state.crossfadeEnabled))
         setCrossfadeDurationSeconds(Number(data.state.crossfadeDurationSeconds ?? 3.0))
+        setLoopTrackByDefault(Boolean(data.state.loopTrackByDefault ?? data.settings?.loopTrackByDefault ?? false))
         setLoopEnabled(Boolean(data.state.loopEnabled))
         setCrossfadePauseEnabled(Boolean(data.state.crossfadePauseEnabled))
       })
@@ -257,6 +286,38 @@ function App() {
   }, [collections, openedCollectionId])
 
   useEffect(() => {
+    if (!window.dungeonMaestro?.updateResolvePriorities) {
+      return
+    }
+
+    if (!state?.sessionRunning || state?.startupInProgress) {
+      resolvePrioritySignatureRef.current = ''
+      return
+    }
+
+    const prioritizedSoundscapeIds = Array.isArray(openedCollection?.soundscapeIds)
+      ? openedCollection.soundscapeIds
+        .filter((soundscapeId) => typeof soundscapeId === 'string')
+        .map((soundscapeId) => soundscapeId.trim())
+        .filter(Boolean)
+      : []
+    const signature = prioritizedSoundscapeIds.join('|')
+    if (resolvePrioritySignatureRef.current === signature) {
+      return
+    }
+    resolvePrioritySignatureRef.current = signature
+
+    window.dungeonMaestro
+      .updateResolvePriorities(prioritizedSoundscapeIds)
+      .then((updated) => {
+        setBootstrap(updated)
+      })
+      .catch((error) => {
+        setCollectionActionError(error?.message || 'Unable to update resolver priorities for the opened collection.')
+      })
+  }, [openedCollection, state?.sessionRunning, state?.startupInProgress])
+
+  useEffect(() => {
     if (!soundscapes.length) {
       return
     }
@@ -385,6 +446,21 @@ function App() {
     return () => window.clearInterval(intervalId)
   }, [state?.pendingTransition?.expiresAtEpoch])
 
+  const isSessionActiveForEditingLock = Boolean(state?.sessionRunning || state?.startupInProgress)
+
+  useEffect(() => {
+    if (!isSessionActiveForEditingLock || !isSoundscapeEditing) {
+      return
+    }
+
+    setPendingNewSoundscapeId('')
+    setSoundscapeDraft(createSoundscapeDraft(libraryFocusSoundscape))
+    setNewKeywordDraft('')
+    setNewTrackDraft('')
+    setIsSoundscapeEditing(false)
+    setSoundscapeEditorError(SOUNDSCAPE_EDIT_BLOCKED_MESSAGE)
+  }, [isSessionActiveForEditingLock, isSoundscapeEditing, libraryFocusSoundscape])
+
   if (bootstrapError) {
     return (
       <div className="loading-shell error-shell">
@@ -422,6 +498,11 @@ function App() {
   }
 
   const persistSoundscapeTracks = async (soundscapeId, nextTracks) => {
+    if (state?.sessionRunning || state?.startupInProgress) {
+      setSoundscapeEditorError(SOUNDSCAPE_EDIT_BLOCKED_MESSAGE)
+      return
+    }
+
     const targetSoundscape = soundscapes.find((soundscape) => getSoundscapeId(soundscape) === soundscapeId)
     if (!targetSoundscape) {
       return
@@ -439,6 +520,8 @@ function App() {
       name: targetSoundscape.name,
       keywords: [...(targetSoundscape.keywords || [])],
       tracks: nextTracks,
+      shuffle: Boolean(targetSoundscape.shuffle),
+      startupMode: targetSoundscape.startupMode || targetSoundscape.startup_mode || 'no_preload',
     }
 
     const updated = await (window.dungeonMaestro.saveSoundscapeEdits
@@ -541,9 +624,6 @@ function App() {
   }
 
   const applyLiveSessionSettings = async (nextSettings) => {
-    if (!state.sessionRunning || state.startupInProgress) {
-      return
-    }
     const updated = await window.dungeonMaestro.updateSessionSettings(nextSettings)
     setBootstrap(updated)
   }
@@ -563,6 +643,7 @@ function App() {
         volumePercent: playbackVolumePercent,
         muted: playbackMuted,
         paused: false,
+        prioritizedSoundscapeIds: openedCollection?.soundscapeIds || [],
       })
       setBootstrap(updated)
     } finally {
@@ -625,9 +706,6 @@ function App() {
   }
 
   const applyPlaybackSettings = async (nextSettings) => {
-    if (!state.sessionRunning || state.startupInProgress) {
-      return
-    }
     const updated = await window.dungeonMaestro.updatePlaybackSettings(nextSettings)
     setBootstrap(updated)
   }
@@ -639,6 +717,7 @@ function App() {
   const isSessionStarting = state.startupInProgress
   const isSessionBusy = sessionActionPending || state.startupInProgress
   const isSessionActive = state.sessionRunning || state.startupInProgress
+
   const playbackStatusLabel = playbackMuted ? 'Muted' : `${playbackVolumePercent}%`
   const playbackRouteLabel = activeOutputMode === 'discord'
     ? (selectedGuild && selectedDiscordVoiceChannel ? `${selectedGuild.name} / ${selectedDiscordVoiceChannel.name}` : 'Discord output')
@@ -741,6 +820,18 @@ function App() {
     void applyPlaybackSettings({ loopEnabled: next })
   }
 
+  const handleLoopTrackByDefaultToggle = () => {
+    const next = !loopTrackByDefault
+    setLoopTrackByDefault(next)
+    if (next) {
+      setLoopEnabled(true)
+    }
+    void applyPlaybackSettings({
+      loopTrackByDefault: next,
+      ...(next ? { loopEnabled: true } : {}),
+    })
+  }
+
   const handleCrossfadePauseToggle = () => {
     const next = !crossfadePauseEnabled
     setCrossfadePauseEnabled(next)
@@ -761,6 +852,11 @@ function App() {
   }
 
   const startSoundscapeEdit = () => {
+    if (state?.sessionRunning || state?.startupInProgress) {
+      setSoundscapeEditorError(SOUNDSCAPE_EDIT_BLOCKED_MESSAGE)
+      return
+    }
+
     if (!libraryFocusSoundscape) {
       return
     }
@@ -786,6 +882,11 @@ function App() {
   }
 
   const startNewSoundscape = () => {
+    if (state?.sessionRunning || state?.startupInProgress) {
+      setSoundscapeEditorError(SOUNDSCAPE_EDIT_BLOCKED_MESSAGE)
+      return
+    }
+
     if (isSoundscapeEditing) {
       return
     }
@@ -838,10 +939,15 @@ function App() {
   }
 
   const createSessionCollection = async (collectionName) => {
-    const updated = await window.dungeonMaestro.createSessionCollection(collectionName)
+    const normalizedName = String(collectionName || '').trim()
+    if (!normalizedName) {
+      throw new Error(COLLECTION_NAME_REQUIRED_MESSAGE)
+    }
+
+    const updated = await window.dungeonMaestro.createSessionCollection(normalizedName)
     setBootstrap(updated)
     const createdCollection = (updated.config.collections || []).find(
-      (collection) => collection.name.toLowerCase() === collectionName.trim().toLowerCase(),
+      (collection) => collection.name.toLowerCase() === normalizedName.toLowerCase(),
     )
     if (!createdCollection) {
       throw new Error('Collection was created but could not be reloaded.')
@@ -908,6 +1014,12 @@ function App() {
   }
 
   const confirmCreateSoundscape = () => {
+    if (state?.sessionRunning || state?.startupInProgress) {
+      setSoundscapeEditorError(SOUNDSCAPE_EDIT_BLOCKED_MESSAGE)
+      setIsCreateCollectionPromptOpen(false)
+      return
+    }
+
     const nextSoundscapeName = newSoundscapeNameDraft.trim()
     if (!nextSoundscapeName) {
       setNewSoundscapePromptError('Soundscape name cannot be empty.')
@@ -1032,6 +1144,11 @@ function App() {
   }
 
   const saveSoundscapeEdit = async () => {
+    if (state?.sessionRunning || state?.startupInProgress) {
+      setSoundscapeEditorError(SOUNDSCAPE_EDIT_BLOCKED_MESSAGE)
+      return
+    }
+
     if (!soundscapeDraftValidation.isValid || !soundscapeDraftValidation.normalized) {
       setSoundscapeEditorError('Resolve the validation issues before saving this soundscape.')
       return
@@ -1077,6 +1194,11 @@ function App() {
   }
 
   const deleteSoundscape = async (soundscapeId = getSoundscapeId(libraryFocusSoundscape)) => {
+    if (state?.sessionRunning || state?.startupInProgress) {
+      setSoundscapeEditorError(SOUNDSCAPE_EDIT_BLOCKED_MESSAGE)
+      return
+    }
+
     const targetSoundscapeId = soundscapeId
     if (!targetSoundscapeId || pendingNewSoundscapeId === targetSoundscapeId) {
       return
@@ -1151,6 +1273,7 @@ function App() {
       handleCrossfadeDurationChange={handleCrossfadeDurationChange}
       handleCrossfadePauseToggle={handleCrossfadePauseToggle}
       handleCrossfadeToggle={handleCrossfadeToggle}
+      handleLoopTrackByDefaultToggle={handleLoopTrackByDefaultToggle}
       handleOutputModeChange={handleOutputModeChange}
       handlePlaybackVolumeChange={handlePlaybackVolumeChange}
       handleTransitionProposalToggle={handleTransitionProposalToggle}
@@ -1177,6 +1300,7 @@ function App() {
       isUseSoundscapeDialogOpen={isUseSoundscapeDialogOpen}
       lastError={lastError}
       lastTranscript={lastTranscript}
+      loopTrackByDefault={loopTrackByDefault}
       loopEnabled={loopEnabled}
       libraryFocusSoundscape={libraryFocusSoundscape}
       soundscapeDraft={soundscapeDraft}

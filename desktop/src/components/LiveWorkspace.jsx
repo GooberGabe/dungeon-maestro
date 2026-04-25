@@ -79,6 +79,7 @@ function LiveWorkspace({
   crossfadePauseEnabled,
   handleCrossfadePauseToggle,
   handleCrossfadeToggle,
+  handleLoopTrackByDefaultToggle,
   handlePlaybackVolumeChange,
   handleTranscriptionProfileChange,
   handleTranscriptionToggle,
@@ -87,6 +88,7 @@ function LiveWorkspace({
   isSessionActive,
   isSessionStarting,
   lastTranscript,
+  loopTrackByDefault,
   loopEnabled,
   filteredCollections,
   newCollectionNameDraft,
@@ -118,6 +120,7 @@ function LiveWorkspace({
 }) {
   const [draggedSoundscapeId, setDraggedSoundscapeId] = useState('')
   const [dragOverZoneId, setDragOverZoneId] = useState('')
+  const canCreateCollection = Boolean((newCollectionNameDraft || '').trim())
   const trackKey = `${state.currentTrackIndex}-${state.currentTrackStartedAt}`
   const activeSoundscapeId = activeSoundscape?.soundscapeId || activeSoundscape?.collectionId || ''
 
@@ -390,7 +393,7 @@ function LiveWorkspace({
             </>
           ) : (
             <>
-              <label className="field-label" htmlFor="controls-collection-search">Browse collections</label>
+              <label className="field-label" htmlFor="controls-collection-search">Search Collections</label>
               <input
                 id="controls-collection-search"
                 className="select-field"
@@ -421,7 +424,7 @@ function LiveWorkspace({
                         title="Open collection"
                       >
                         <img
-                          src="/play-button.svg"
+                          src="/open-folder.svg"
                           alt="Open"
                           style={{ width: 'var(--icon-lg)', height: 'var(--icon-lg)' }}
                         />
@@ -440,7 +443,7 @@ function LiveWorkspace({
                       onChange={(event) => setNewCollectionNameDraft(event.target.value)}
                       placeholder="Click here to add your first Collection!"
                     />
-                    <button className="primary-button" type="button" onClick={onCreateCollection}>
+                    <button className="primary-button" type="button" onClick={onCreateCollection} disabled={!canCreateCollection}>
                       Create
                     </button>
                   </div>
@@ -459,7 +462,7 @@ function LiveWorkspace({
                       onChange={(event) => setNewCollectionNameDraft(event.target.value)}
                       placeholder="Friday Night Session"
                     />
-                    <button className="ghost-button" type="button" onClick={onCreateCollection}>
+                    <button className="ghost-button" type="button" onClick={onCreateCollection} disabled={!canCreateCollection}>
                       Create
                     </button>
                   </div>
@@ -513,58 +516,14 @@ function LiveWorkspace({
                 <span className="settings-name">Fade on pause</span>
                 <input type="checkbox" checked={crossfadeEnabled && crossfadePauseEnabled} onChange={handleCrossfadePauseToggle} disabled={!crossfadeEnabled} />
               </label>
-            </div>
-          </div>
 
-          <div className="settings-section">
-            <div className="settings-section-header">
-              <h3 className="settings-section-title">Transcription</h3>
-            </div>
-
-            <div className="settings-stack">
               <label className="settings-row toggle-row">
-                <span className="settings-name">Live transcription</span>
-                <input type="checkbox" checked={transcriptionEnabled} onChange={handleTranscriptionToggle} />
+                <span className="settings-name">Loop track by default</span>
+                <input type="checkbox" checked={loopTrackByDefault} onChange={handleLoopTrackByDefaultToggle} />
               </label>
-
-              <div className={`settings-row ${!transcriptionEnabled ? 'disabled' : ''}`}>
-                <label className="settings-name" htmlFor="transcription-profile">Profile</label>
-                <select
-                  id="transcription-profile"
-                  className="select-field compact-select-field"
-                  value={transcriptionProfile}
-                  onChange={handleTranscriptionProfileChange}
-                  disabled={!transcriptionEnabled}
-                >
-                  <option value="fast">Fast</option>
-                  <option value="balanced">Balanced</option>
-                  <option value="accurate">Accurate</option>
-                </select>
-              </div>
-
-              <label className={`settings-row toggle-row ${!transcriptionEnabled ? 'disabled' : ''}`}>
-                <span className="settings-name">Transition proposals</span>
-                <input type="checkbox" checked={transcriptionEnabled && transitionProposalsEnabled} onChange={handleTransitionProposalToggle} disabled={!transcriptionEnabled} />
-              </label>
-
-              <div className="settings-row">
-                <label className="settings-name" htmlFor="transition-timeout-seconds">Transition proposal timeout</label>
-                <div className="number-field-row compact-number-row">
-                  <input
-                    id="transition-timeout-seconds"
-                    className="number-field compact-number-field"
-                    type="number"
-                    min="5"
-                    max="300"
-                    step="5"
-                    value={transitionTimeoutSeconds}
-                    onChange={handleTransitionTimeoutChange}
-                  />
-                  <span className="number-suffix">s</span>
-                </div>
-              </div>
             </div>
           </div>
+
         </div>
       </div>
     </section>

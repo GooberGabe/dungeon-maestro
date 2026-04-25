@@ -1,4 +1,5 @@
 const { BrowserWindow } = require('electron')
+const fs = require('fs')
 const path = require('path')
 
 const { desktopSettings, sessionState, appConfig } = require('./state.cjs')
@@ -7,9 +8,26 @@ const { saveDesktopSettings } = require('./config.cjs')
 const DEV_SERVER_URL = 'http://localhost:5173'
 const HUD_WIDTH = 352
 const HUD_COMPACT_HEIGHT = 154
+const HUD_CORNER_RADIUS = 22
 
 let mainWindow = null
 let hudWindow = null
+
+function resolveAppIconPath() {
+  const iconFile = process.platform === 'win32' ? 'logo.ico' : 'logo.png'
+  const candidates = [
+    path.resolve(__dirname, '..', '..', 'assets', iconFile),
+    path.resolve(process.resourcesPath || '', 'assets', iconFile),
+    path.resolve(process.resourcesPath || '', 'app.asar', 'assets', iconFile),
+  ]
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate
+    }
+  }
+  return undefined
+}
 
 function getMainWindow() {
   return mainWindow
@@ -70,6 +88,50 @@ function syncHudWindowSize() {
   if (currentWidth !== HUD_WIDTH || currentHeight !== targetHeight) {
     hudWindow.setSize(HUD_WIDTH, targetHeight, true)
   }
+  applyHudWindowShape(hudWindow)
+}
+
+function buildRoundedRectShape(width, height, radius) {
+  const safeRadius = Math.max(0, Math.min(Math.floor(radius), Math.floor(width / 2), Math.floor(height / 2)))
+  const rects = []
+
+  for (let y = 0; y < height; y += 1) {
+    let inset = 0
+    if (safeRadius > 0) {
+      if (y < safeRadius) {
+        const dy = safeRadius - y - 0.5
+        inset = Math.ceil(safeRadius - Math.sqrt((safeRadius * safeRadius) - (dy * dy)))
+      } else if (y >= (height - safeRadius)) {
+        const dy = y - (height - safeRadius) + 0.5
+        inset = Math.ceil(safeRadius - Math.sqrt((safeRadius * safeRadius) - (dy * dy)))
+      }
+    }
+
+    const lineWidth = Math.max(0, width - (inset * 2))
+    if (lineWidth > 0) {
+      rects.push({ x: inset, y, width: lineWidth, height: 1 })
+    }
+  }
+
+  return rects
+}
+
+function applyHudWindowShape(targetWindow) {
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    return
+  }
+  if (typeof targetWindow.setShape !== 'function') {
+    return
+  }
+  if (process.platform !== 'win32' && process.platform !== 'linux') {
+    return
+  }
+
+  const [width, height] = targetWindow.getSize()
+  const shape = buildRoundedRectShape(width, height, HUD_CORNER_RADIUS)
+  if (shape.length > 0) {
+    targetWindow.setShape(shape)
+  }
 }
 
 function createHudWindow() {
@@ -78,6 +140,7 @@ function createHudWindow() {
   }
 
   const savedBounds = desktopSettings.hudBounds || {}
+  const appIcon = resolveAppIconPath()
   hudWindow = new BrowserWindow({
     width: HUD_WIDTH,
     height: HUD_COMPACT_HEIGHT,
@@ -95,7 +158,9 @@ function createHudWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: true,
+    roundedCorners: true,
     backgroundColor: '#00000000',
+    icon: appIcon,
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -110,6 +175,7 @@ function createHudWindow() {
   loadRendererWindow(hudWindow, 'hud')
   attachWindowDiagnostics(hudWindow, 'HUD')
   syncHudWindowSize()
+  applyHudWindowShape(hudWindow)
 
   hudWindow.on('moved', saveHudBounds)
   hudWindow.on('close', () => {
@@ -123,12 +189,14 @@ function createHudWindow() {
 }
 
 function createMainWindow() {
+  const appIcon = resolveAppIconPath()
   mainWindow = new BrowserWindow({
     width: 1420,
     height: 920,
     minWidth: 1180,
     minHeight: 760,
     backgroundColor: '#091a2a',
+    icon: appIcon,
     titleBarStyle: 'hiddenInset',
     autoHideMenuBar: true,
     webPreferences: {

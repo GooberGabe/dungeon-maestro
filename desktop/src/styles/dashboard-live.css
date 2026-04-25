@@ -234,3 +234,30 @@
     align-items: flex-start;
   }
 }
+
+.debug-log-metric {
+  display: grid;
+  gap: 6px;
+}
+
+.debug-log-panel {
+  border: 1px solid rgba(82, 121, 166, 0.28);
+  border-radius: 14px;
+  background: rgba(3, 10, 18, 0.7);
+  padding: 8px 10px;
+  max-height: 170px;
+  overflow-y: auto;
+}
+
+.debug-log-line {
+  margin: 0;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: rgba(222, 230, 239, 0.92);
+  word-break: break-word;
+}
+
+.debug-log-line + .debug-log-line {
+  margin-top: 4px;
+}

@@ -16,6 +16,8 @@ class Soundscape:
     keywords: list[str]
     tracks: list[TrackSource]
     playback_mode: str = "sequential_loop"
+    shuffle: bool = False
+    startup_mode: str = "no_preload"
 
     @property
     def collection_id(self) -> str:
@@ -110,6 +112,7 @@ class PipelineState:
     pending_transition: PendingTransition | None = None
     resolved_tracks: dict[str, list[ResolvedTrack | None]] = field(default_factory=dict)
     resolved_track_status: dict[str, list[bool]] = field(default_factory=dict)
+    playback_order_by_soundscape: dict[str, list[int]] = field(default_factory=dict)
     next_track_index_by_soundscape: dict[str, int] = field(default_factory=dict)
     session_log: list[dict[str, object]] = field(default_factory=list)
 
