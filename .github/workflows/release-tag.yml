@@ -38,11 +38,35 @@ jobs:
         working-directory: desktop
         run: npm run build
 
+      - name: Validate desktop dist contents
+        shell: pwsh
+        run: |
+          if (!(Test-Path "desktop/dist/index.html")) {
+            throw "desktop/dist/index.html is missing after build."
+          }
+
+          $jsBundle = Get-ChildItem "desktop/dist/assets" -Filter "index-*.js" -ErrorAction SilentlyContinue
+          $cssBundle = Get-ChildItem "desktop/dist/assets" -Filter "index-*.css" -ErrorAction SilentlyContinue
+          if (!$jsBundle) {
+            throw "No hashed JS bundle found in desktop/dist/assets."
+          }
+          if (!$cssBundle) {
+            throw "No hashed CSS bundle found in desktop/dist/assets."
+          }
+
+          Write-Host "Desktop dist validation passed."
+          Write-Host "JS bundle: $($jsBundle[0].Name)"
+          Write-Host "CSS bundle: $($cssBundle[0].Name)"
+
       - name: Archive desktop dist
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          Compress-Archive -Path desktop/dist/* -DestinationPath artifacts/desktop-dist.zip -Force
+          if (Test-Path "artifacts/desktop-dist") {
+            Remove-Item "artifacts/desktop-dist" -Recurse -Force
+          }
+          Copy-Item "desktop/dist" "artifacts/desktop-dist" -Recurse -Force
+          Compress-Archive -Path "artifacts/desktop-dist" -DestinationPath "artifacts/desktop-dist.zip" -Force
 
       - name: Setup Python
         uses: actions/setup-python@v5
