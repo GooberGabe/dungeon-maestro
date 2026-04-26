@@ -1,12 +1,19 @@
 {
   "name": "dungeon-maestro-desktop",
   "version": "0.1.0",
+  "description": "DungeonMaestro desktop shell",
   "private": true,
+  "author": "GooberGabe",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GooberGabe/dungeon-maestro.git"
+  },
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
-    "start": "electron ."
+    "start": "electron .",
+    "package:win": "npm run build && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
@@ -18,7 +25,41 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "electron": "^35.1.5",
+    "electron-builder": "^24.13.3",
     "vite": "^6.2.2",
     "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.goobergabe.dungeonmaestro",
+    "productName": "DungeonMaestro",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../assets/logo.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "DungeonMaestro-${version}-setup.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "GooberGabe",
+      "repo": "dungeon-maestro"
+    }
   }
 }

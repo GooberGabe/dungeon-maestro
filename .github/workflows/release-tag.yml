@@ -68,6 +68,21 @@ jobs:
           Copy-Item "desktop/dist" "artifacts/desktop-dist" -Recurse -Force
           Compress-Archive -Path "artifacts/desktop-dist" -DestinationPath "artifacts/desktop-dist.zip" -Force
 
+      - name: Build Windows installer
+        working-directory: desktop
+        run: npm run package:win
+
+      - name: Collect installer artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          if (!(Test-Path "desktop/release")) {
+            throw "desktop/release output directory not found after installer build."
+          }
+          Copy-Item "desktop/release/*.exe" artifacts/ -Force -ErrorAction SilentlyContinue
+          Copy-Item "desktop/release/*.blockmap" artifacts/ -Force -ErrorAction SilentlyContinue
+          Copy-Item "desktop/release/latest*.yml" artifacts/ -Force -ErrorAction SilentlyContinue
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -113,9 +128,12 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/desktop-dist.zip
+            artifacts/*.exe
+            artifacts/*.blockmap
+            artifacts/latest*.yml
             artifacts/*.whl
             artifacts/*.tar.gz
 
       # Phase 6 follow-up:
-      # Add installer generation here (electron-builder + sidecar bundle integration)
-      # and upload signed installer artifacts once code signing is configured.
+      # Integrate sidecar/runtime bundling into installer and upload signed
+      # installer artifacts once code signing is configured.
