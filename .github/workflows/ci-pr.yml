@@ -46,7 +46,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install build
-          python -m pip install -r requirements.txt
+          python -m pip install -e .
 
       - name: Validate sidecar syntax
         run: python -m compileall src/dungeon_maestro_sidecar
