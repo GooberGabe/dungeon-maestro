@@ -74,6 +74,14 @@ function applyDiscordTargets(discovery) {
   syncConfigIntoState()
 }
 
+function normalizeDiscordDiscoveryError(rawMessage, exitCode) {
+  const message = String(rawMessage || `Discord discovery failed with exit code ${exitCode}`).trim()
+  if (/No module named 'discord'|discord\.py is required for Discord discovery/i.test(message)) {
+    return 'Discord discovery unavailable: install optional sidecar dependency discord.py to resolve Discord servers/channels.'
+  }
+  return message
+}
+
 function resolveDiscordTargets(emitState, getBootstrapData) {
   if (!desktopSettings.botToken) {
     sessionState.discordTargets = []
@@ -124,7 +132,7 @@ function resolveDiscordTargets(emitState, getBootstrapData) {
     child.on('close', (code) => {
       sessionState.discordDiscoveryInFlight = false
       if (code !== 0) {
-        const message = stderr.trim() || `Discord discovery failed with exit code ${code}`
+        const message = normalizeDiscordDiscoveryError(stderr.trim(), code)
         sessionState.discordTargets = []
         sessionState.discordBotUser = null
         sessionState.lastError = message

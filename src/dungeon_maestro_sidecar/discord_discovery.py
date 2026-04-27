@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 
 
 def _load_discord_module():
@@ -81,7 +82,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     token = os.environ.get(args.token_env, "")
-    payload = asyncio.run(discover_discord_targets(token))
+    try:
+        payload = asyncio.run(discover_discord_targets(token))
+    except Exception as exc:
+        # Keep discovery failures concise for UI consumption.
+        print(str(exc), file=sys.stderr)
+        return 1
+
     print(json.dumps(payload))
     return 0
 
