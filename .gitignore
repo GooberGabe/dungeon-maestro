@@ -10,3 +10,5 @@ desktop/node_modules/
 desktop/dist/
 desktop/.vite/
 desktop/.electron-state.json
+desktop/release/
+docs/release-checklist.md

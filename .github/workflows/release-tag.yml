@@ -54,6 +54,11 @@ jobs:
             throw "No hashed CSS bundle found in desktop/dist/assets."
           }
 
+          $indexHtml = Get-Content "desktop/dist/index.html" -Raw
+          if ($indexHtml -match 'src="/assets/' -or $indexHtml -match 'href="/assets/') {
+            throw "desktop/dist/index.html contains absolute /assets paths that break packaged Electron builds."
+          }
+
           Write-Host "Desktop dist validation passed."
           Write-Host "JS bundle: $($jsBundle[0].Name)"
           Write-Host "CSS bundle: $($cssBundle[0].Name)"

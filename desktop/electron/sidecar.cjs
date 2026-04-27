@@ -46,6 +46,15 @@ function startSidecarProcess(emitState, handleSidecarMessage) {
     }
   })
 
+  sidecarProcess.on('error', (error) => {
+    console.error('[sidecar] failed to start process', error)
+    sidecarProcess = null
+    sessionState.sidecarConnected = false
+    sessionState.sidecarStatus = `Sidecar failed to start: ${error.message}`
+    emitState()
+    scheduleSidecarReconnect(emitState, handleSidecarMessage)
+  })
+
   sidecarProcess.on('exit', (code) => {
     sidecarProcess = null
     sessionState.sidecarConnected = false
