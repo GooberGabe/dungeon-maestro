@@ -73,6 +73,11 @@ jobs:
           Copy-Item "desktop/dist" "artifacts/desktop-dist" -Recurse -Force
           Compress-Archive -Path "artifacts/desktop-dist" -DestinationPath "artifacts/desktop-dist.zip" -Force
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
       - name: Build Windows installer
         working-directory: desktop
         run: npm run package:win
@@ -87,11 +92,6 @@ jobs:
           Copy-Item "desktop/release/*.exe" artifacts/ -Force -ErrorAction SilentlyContinue
           Copy-Item "desktop/release/*.blockmap" artifacts/ -Force -ErrorAction SilentlyContinue
           Copy-Item "desktop/release/latest*.yml" artifacts/ -Force -ErrorAction SilentlyContinue
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
 
       - name: Build sidecar Python distributions
         run: |

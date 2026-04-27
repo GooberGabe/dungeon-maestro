@@ -142,8 +142,21 @@ function validateSessionCollectionName(name) {
 }
 
 function pythonExecutable() {
-  const candidate = path.join(require('./state.cjs').workspaceRoot, '.venv', 'Scripts', 'python.exe')
-  return fs.existsSync(candidate) ? candidate : 'python'
+  const candidates = []
+
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'sidecar-python', 'Scripts', 'python.exe'))
+  }
+
+  candidates.push(path.join(require('./state.cjs').workspaceRoot, '.venv', 'Scripts', 'python.exe'))
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return 'python'
 }
 
 module.exports = {
