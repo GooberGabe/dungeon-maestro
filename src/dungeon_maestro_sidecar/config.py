@@ -25,54 +25,6 @@ def default_settings() -> PipelineSettings:
     )
 
 
-def default_soundscapes() -> list[Soundscape]:
-    return [
-        Soundscape(
-            soundscape_id="ambient",
-            name="Ambient Exploration",
-            keywords=["explore", "travel", "walk", "ambient"],
-            tracks=[
-                TrackSource("fantasy exploration ambience"),
-                TrackSource("forest ambience for tabletop rpg"),
-            ],
-            playback_mode="sequential_loop",
-        ),
-        Soundscape(
-            soundscape_id="combat",
-            name="Combat",
-            keywords=["combat", "fight", "battle", "initiative", "roll for initiative"],
-            tracks=[
-                TrackSource("epic combat music dnd"),
-                TrackSource("Bloodborne Soundtrack full OST"),
-                TrackSource("intense orchestral battle music"),
-            ],
-            playback_mode="sequential_loop",
-        ),
-        Soundscape(
-            soundscape_id="tavern",
-            name="Tavern",
-            keywords=["tavern", "inn", "rest", "town"],
-            tracks=[TrackSource("medieval tavern music ambience")],
-            playback_mode="sequential_loop",
-        ),
-        Soundscape(
-            soundscape_id="dungeon",
-            name="Dungeon",
-            keywords=["dungeon", "cave", "underground", "darkness"],
-            tracks=[
-                TrackSource("dark dungeon ambience no music"),
-                TrackSource("cavern ambience dark fantasy"),
-            ],
-            playback_mode="sequential_loop",
-        ),
-    ]
-
-
-def default_collections() -> list[Soundscape]:
-    # Legacy helper: collections used to be soundscapes in the config.
-    return default_soundscapes()
-
-
 def load_pipeline_config(config_path: str | Path) -> tuple[PipelineSettings, list[Soundscape]]:
     path = Path(config_path)
     if not path.is_file():
@@ -251,7 +203,3 @@ def _parse_soundscapes(raw_soundscapes: object) -> list[Soundscape]:
         )
 
     return soundscapes
-
-
-def _parse_collections(raw_collections: object) -> list[Soundscape]:
-    return _parse_soundscapes(raw_collections)

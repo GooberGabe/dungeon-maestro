@@ -19,6 +19,20 @@ soundscapes:
       startup_mode: no_preload
 """
 
+LEGACY_COLLECTIONS_CONFIG = """
+settings:
+  default_collection: legacy-starter
+collections:
+  legacy-starter:
+    name: Legacy Starter
+    keywords: ["legacy"]
+    tracks:
+      - source: legacy track
+    playback:
+      mode: sequential_loop
+      startup_mode: no_preload
+"""
+
 
 class ConfigIntegrationTests(unittest.TestCase):
     def test_load_pipeline_config_from_yaml_file(self):
@@ -32,6 +46,18 @@ class ConfigIntegrationTests(unittest.TestCase):
         self.assertEqual(len(soundscapes), 1)
         self.assertEqual(soundscapes[0].soundscape_id, "starter")
         self.assertEqual(soundscapes[0].tracks[0].source, "test track one")
+
+    def test_load_pipeline_config_from_legacy_collections_shape(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "dungeon-maestro.yaml"
+            config_path.write_text(LEGACY_COLLECTIONS_CONFIG, encoding="utf-8")
+
+            settings, soundscapes = load_pipeline_config(config_path)
+
+        self.assertEqual(settings.default_soundscape, "legacy-starter")
+        self.assertEqual(len(soundscapes), 1)
+        self.assertEqual(soundscapes[0].soundscape_id, "legacy-starter")
+        self.assertEqual(soundscapes[0].tracks[0].source, "legacy track")
 
 
 if __name__ == "__main__":

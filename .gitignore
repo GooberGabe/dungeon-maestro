@@ -16,3 +16,4 @@ desktop/.electron-state.json
 desktop/release/
 desktop/sidecar-python/
 docs/release-checklist.md
+code-audit-template.txt

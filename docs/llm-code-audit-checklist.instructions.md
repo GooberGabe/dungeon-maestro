@@ -139,15 +139,19 @@ Deliverable:
 Checklist:
 
 1. Compare structure and patterns against common standards for similar stacks.
-2. For Electron plus React:
+2. Compare findings against project ideals and expected behavior documented in:
+   - DungeonMaestro.md
+   - docs/release-checklist.md
+3. Flag and classify any gaps between implementation and documented intent.
+4. For Electron plus React:
    - Separation of main process, preload bridge, renderer
    - Clear IPC contracts
    - Build and packaging hygiene
-3. For Python service layer:
+5. For Python service layer:
    - Clear module boundaries
    - Testability and deterministic behavior
    - Configuration validation and error handling
-4. For CI/CD:
+6. For CI/CD:
    - Fast PR signal quality
    - Reliable release gating
    - Security checks in source and packaged artifacts
@@ -205,8 +209,9 @@ Checklist:
 
 1. Implement approved items only.
 2. Keep patches small and reviewable.
-3. Run relevant tests and build checks.
-4. Report exact deltas and residual risks.
+3. Run relevant tests and required build checks.
+4. Ensure the project build succeeds for the audited scope, and full-project build succeeds when feasible.
+5. Report exact deltas and residual risks.
 
 Deliverable:
 
@@ -251,9 +256,10 @@ For each audit pass, produce:
 5. Underutilized utilities
 6. Broken references and hallucination suspects
 7. Standards gaps
-8. Proposed actions requiring approval
-9. Proposed actions safe to apply immediately
-10. Validation plan for approved changes
+8. Documentation-alignment gaps (DungeonMaestro.md and docs/release-checklist.md)
+9. Proposed actions requiring approval
+10. Proposed actions safe to apply immediately
+11. Validation plan for approved changes (including build success criteria)
 
 ## 8. Approval Prompt Template
 
@@ -296,22 +302,7 @@ Stop conditions for a scope:
 4. Always include validation evidence for each change set.
 5. Keep docs synchronized with code and workflow changes.
 
-## 11. Suggested First Iterative Pass for This Repository
-
-Pass 1 target:
-
-1. Python sidecar leaf utilities and config parsing modules
-2. Electron settings and IPC contract boundaries
-3. Renderer shared utility modules
-
-Pass 1 objectives:
-
-1. Dead code and unreachable path inventory
-2. Reference integrity sweep
-3. Utility reuse opportunities
-4. Approval-ready cleanup and refactor proposal set
-
-## 12. Maintenance of This Checklist
+## 11. Maintenance of This Checklist
 
 Update this document when:
 

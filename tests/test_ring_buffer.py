@@ -33,6 +33,23 @@ class AudioRingBufferTests(unittest.TestCase):
         self.assertEqual(buffer.total_samples, 0)
         self.assertEqual(buffer.snapshot().size, 0)
 
+    def test_oversized_append_keeps_newest_samples(self):
+        buffer = AudioRingBuffer(max_samples=4)
+        buffer.append(np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32))
+
+        snapshot = buffer.snapshot()
+        self.assertTrue(np.allclose(snapshot, np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)))
+        self.assertEqual(buffer.total_samples, 4)
+
+    def test_trim_preserves_tail_of_oldest_chunk(self):
+        buffer = AudioRingBuffer(max_samples=5)
+        buffer.append(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+        buffer.append(np.array([5.0, 6.0], dtype=np.float32))
+
+        snapshot = buffer.snapshot()
+        self.assertTrue(np.allclose(snapshot, np.array([2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float32)))
+        self.assertEqual(buffer.total_samples, 5)
+
 
 if __name__ == "__main__":
     unittest.main()

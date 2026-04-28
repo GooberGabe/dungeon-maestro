@@ -19,6 +19,15 @@ class AudioRingBuffer:
         flattened = np.asarray(chunk, dtype=np.float32).reshape(-1)
         if flattened.size == 0:
             return
+
+        if flattened.size >= self._max_samples:
+            # Keep the newest samples when a single append would overflow the whole buffer.
+            tail = flattened[-self._max_samples:]
+            self._chunks.clear()
+            self._chunks.append(tail)
+            self._total_samples = int(tail.size)
+            return
+
         self._chunks.append(flattened)
         self._total_samples += int(flattened.size)
         self._trim()
@@ -34,5 +43,13 @@ class AudioRingBuffer:
 
     def _trim(self) -> None:
         while self._chunks and self._total_samples > self._max_samples:
+            overflow = self._total_samples - self._max_samples
             removed = self._chunks.popleft()
-            self._total_samples -= int(removed.size)
+            if removed.size <= overflow:
+                self._total_samples -= int(removed.size)
+                continue
+
+            trimmed = removed[overflow:]
+            self._chunks.appendleft(trimmed)
+            self._total_samples -= int(overflow)
+            break
