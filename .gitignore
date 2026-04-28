@@ -4,8 +4,11 @@ __pycache__/
 *.pyo
 *.pyd
 *.egg-info/
+src/dungeon_maestro_sidecar.egg-info/
 build/
 dist/
+dungeon-maestro.yaml
+dungeon-maestro.session.json
 desktop/node_modules/
 desktop/dist/
 desktop/.vite/

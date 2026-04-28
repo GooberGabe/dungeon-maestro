@@ -1,0 +1,10 @@
+{
+  "session_id": "example-session",
+  "active_collection": "starter-session",
+  "track_index": 0,
+  "cooldown_remaining": 0,
+  "next_track_index_by_collection": {
+    "starter-session": 0
+  },
+  "log": []
+}

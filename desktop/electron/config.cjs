@@ -59,6 +59,7 @@ function defaultUserConfigPath() {
 function findBundledConfigTemplatePath() {
   const candidates = [
     path.resolve(__dirname, '..', '..', 'dungeon-maestro.yaml'),
+    path.resolve(__dirname, '..', '..', 'dungeon-maestro.yaml.example'),
     path.resolve(process.resourcesPath || '', 'dungeon-maestro.yaml'),
     path.resolve(process.resourcesPath || '', 'app.asar', 'dungeon-maestro.yaml'),
   ]

@@ -104,6 +104,13 @@ Install from repo root:
 
 - `python -m pip install -e .`
 
+### Local Config Files
+
+- Copy [dungeon-maestro.yaml.example](dungeon-maestro.yaml.example) to a local [dungeon-maestro.yaml](dungeon-maestro.yaml) for personal testing.
+- Copy [dungeon-maestro.session.example.json](dungeon-maestro.session.example.json) to a local [dungeon-maestro.session.json](dungeon-maestro.session.json) if you need a seeded session state.
+
+Both local files are intentionally ignored so personal test content is not committed.
+
 ## Notes
 
 This document reflects the current beta-facing product behavior. Internal experiments and postponed features may still exist in code but are not considered active user-facing functionality.

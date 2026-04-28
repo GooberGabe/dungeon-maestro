@@ -43,7 +43,7 @@
     ],
     "extraResources": [
       {
-        "from": "../dungeon-maestro.yaml",
+        "from": "../dungeon-maestro.yaml.example",
         "to": "dungeon-maestro.yaml"
       },
       {

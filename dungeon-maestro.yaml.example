@@ -1,0 +1,24 @@
+settings:
+  cooldown_seconds: 180
+  whisper_model: base
+  enable_transition_proposals: false
+  transition_popup_timeout: 30
+  transcription_window_seconds: 1
+  transcription_stride_seconds: 0.5
+  transcription_profile: fast
+  default_soundscape: starter
+soundscapes:
+  starter:
+    name: Starter Soundscape
+    keywords: []
+    tracks:
+      - source: replace-with-track-source-or-search-query
+    playback:
+      mode: sequential_loop
+      shuffle: false
+      startup_mode: no_preload
+collections:
+  starter-session:
+    name: Starter Session
+    soundscapes:
+      - starter
