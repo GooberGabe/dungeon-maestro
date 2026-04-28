@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
-import { getSoundscapeId } from '../constants'
+import { ICONS, assetPath, getSoundscapeId } from '../constants'
 
 const TRACK_DROP_ZONE_END = '__TRACK_END__'
-const confirmedIconSrc = `${import.meta.env.BASE_URL}confirmed.svg`
+const confirmedIconSrc = assetPath('confirmed.svg')
 
 function LibraryWorkspace({
   addKeywordToDraft,
@@ -292,7 +292,7 @@ function LibraryWorkspace({
                       title={buttonTitle}
                     >
                       <img
-                        src={buttonDisabled ? '/play-button-grayed-out.svg' : showPause ? '/pause-button.svg' : '/play-button.svg'}
+                        src={buttonDisabled ? ICONS.playDisabled : showPause ? ICONS.pause : ICONS.play}
                         alt={showPause ? 'Pause' : 'Play'}
                         style={{ width: 'var(--icon-lg)', height: 'var(--icon-lg)' }}
                       />
@@ -572,7 +572,7 @@ function LibraryWorkspace({
                           title={buttonTitle}
                         >
                           <img
-                            src={buttonDisabled ? '/play-button-grayed-out.svg' : showPause ? '/pause-button.svg' : '/play-button.svg'}
+                            src={buttonDisabled ? ICONS.playDisabled : showPause ? ICONS.pause : ICONS.play}
                             alt={showPause ? 'Pause' : showResume ? 'Resume' : 'Play'}
                             draggable={false}
                             style={{ width: 'var(--icon-lg)', height: 'var(--icon-lg)' }}
