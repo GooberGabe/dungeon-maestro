@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { getSoundscapeId } from '../constants'
 
 const TRACK_DROP_ZONE_END = '__TRACK_END__'
+const confirmedIconSrc = `${import.meta.env.BASE_URL}confirmed.svg`
 
 function LibraryWorkspace({
   addKeywordToDraft,
@@ -511,7 +512,7 @@ function LibraryWorkspace({
                                 return isSessionActive && isTrackLoaded ? (
                                   <img
                                     className="track-preloaded-indicator"
-                                    src="/confirmed.svg"
+                                    src={confirmedIconSrc}
                                     alt="Preloaded"
                                     title="Track preloaded"
                                     draggable={false}
