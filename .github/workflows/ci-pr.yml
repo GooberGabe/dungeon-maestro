@@ -4,11 +4,9 @@ on:
   pull_request:
     branches:
       - main
-      - release/**
   push:
     branches:
       - main
-      - release/**
 
 permissions:
   contents: read
@@ -33,6 +31,10 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      - name: Run desktop unit tests
+        working-directory: desktop
+        run: npm run test:unit
+
       - name: Build desktop renderer
         working-directory: desktop
         run: npm run build
@@ -47,6 +49,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build
           python -m pip install -e .
+
+      - name: Run sidecar unit tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Run sidecar integration smoke test
+        run: |
+          python -c "from pathlib import Path; from dungeon_maestro_sidecar.config import load_pipeline_config; settings, soundscapes = load_pipeline_config(Path('dungeon-maestro.yaml.example')); assert settings.default_soundscape == 'starter'; assert len(soundscapes) > 0"
 
       - name: Validate sidecar syntax
         run: python -m compileall src/dungeon_maestro_sidecar

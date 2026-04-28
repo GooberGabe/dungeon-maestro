@@ -67,7 +67,7 @@ During a session:
 Desktop preferences are saved between launches, including:
 
 - Output mode
-- Discord target selection and token
+- Discord target selection and bot token (stored securely via Windows Credential Manager in desktop builds)
 - Playback defaults (volume, mute, loop, crossfade)
 - HUD window bounds
 
@@ -96,6 +96,12 @@ From [desktop/package.json](desktop/package.json):
 
 - `npm run build`
 
+### Run Desktop Unit Tests
+
+From [desktop/package.json](desktop/package.json):
+
+- `npm run test:unit`
+
 ### Sidecar
 
 The Python sidecar package lives under [src/dungeon_maestro_sidecar](src/dungeon_maestro_sidecar).
@@ -103,6 +109,16 @@ The Python sidecar package lives under [src/dungeon_maestro_sidecar](src/dungeon
 Install from repo root:
 
 - `python -m pip install -e .`
+
+### Run Sidecar Tests
+
+From repo root:
+
+- `python -m unittest discover -s tests -p "test_*.py"`
+
+### CI/CD Playbook
+
+Pipeline operation details, release checklists, and branch protection setup live in [docs/pipeline-playbook.md](docs/pipeline-playbook.md).
 
 ### Local Config Files
 

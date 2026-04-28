@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
+    "test:unit": "vitest run",
     "guard:release-secrets": "node ./scripts/release-secret-guard.cjs --mode=git --root ..",
     "prepare:sidecar-runtime": "powershell -ExecutionPolicy Bypass -File ./scripts/prepare-sidecar-runtime.ps1",
     "start": "electron .",
@@ -30,6 +31,7 @@
     "electron": "^35.1.5",
     "electron-builder": "^24.13.3",
     "vite": "^6.2.2",
+    "vitest": "^2.1.8",
     "wait-on": "^8.0.3"
   },
   "build": {

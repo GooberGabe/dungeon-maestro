@@ -30,8 +30,8 @@ Workflow: [.github/workflows/ci-pr.yml](../.github/workflows/ci-pr.yml)
 
 Triggers:
 
-- pull_request to main and release/**
-- push to main and release/**
+- pull_request to main
+- push to main
 
 What it validates:
 
@@ -69,8 +69,7 @@ Release classification logic:
 
 ### Branches
 
-- main: integration branch and source for most tags
-- release/**: optional stabilization branches for controlled release trains
+- main: integration branch and source for releases
 
 Suggested operating rule:
 
@@ -138,7 +137,7 @@ npm run package:win
 ### A. Before tagging
 
 1. Confirm clean working tree.
-2. Confirm target commit is on main (or intended release/** branch).
+2. Confirm target commit is on main.
 3. Confirm CI PR checks are green for the commit/PR range.
 4. Run local preflight (desktop and sidecar).
 5. Confirm no temporary/local files are staged.
@@ -281,13 +280,37 @@ If code change is required:
 - Plaintext local settings should not contain bot token.
 - Local config/test files remain ignored from git tracking.
 
-## Recommended Near-Term Enhancements
+## Implemented Baseline Controls
 
-1. Add automated tests (renderer and sidecar) into CI PR workflow.
-2. Add branch protection requiring CI PR pass before merge.
-3. Add workflow concurrency cancellation for stale runs.
-4. Add code-signing steps for installer in release workflow.
-5. Add a short release notes template for consistent operator comms.
+1. CI PR runs desktop unit tests and sidecar unit/integration smoke tests.
+2. Branch protection policy can be applied as code via scripts/apply-branch-protection.ps1.
+3. Release flow remains tag-driven with source and packaged secret guards.
+
+## Recommended Next Enhancements
+
+1. Add workflow concurrency cancellation for stale runs.
+2. Add code-signing steps for installer in release workflow.
+3. Add a short release notes template for consistent operator comms.
+
+## Required Status Check Policy
+
+Target branch: main
+
+Required check context:
+
+- Validate Desktop and Sidecar
+
+Apply policy using script:
+
+```powershell
+$env:GITHUB_TOKEN = "<token-with-repo-admin-permission>"
+./scripts/apply-branch-protection.ps1
+```
+
+Notes:
+
+- The policy requires the branch to be up to date before merge (strict=true).
+- If the CI job name changes, update the required context in scripts/apply-branch-protection.ps1.
 
 ## Quick Commands Reference
 
