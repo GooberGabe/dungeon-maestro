@@ -11,6 +11,7 @@ const COLLECTION_NAME_REQUIRED_MESSAGE = 'Collection name cannot be empty.'
 function App() {
   const [bootstrap, setBootstrap] = useState(null)
   const [botTokenDraft, setBotTokenDraft] = useState('')
+  const [hasSavedBotToken, setHasSavedBotToken] = useState(false)
   const [selectedLibrarySoundscapeId, setSelectedLibrarySoundscapeId] = useState('')
   const [librarySearchQuery, setLibrarySearchQuery] = useState('')
   const [openedCollectionId, setOpenedCollectionId] = useState('')
@@ -83,7 +84,8 @@ function App() {
         )
         setBootstrap(data)
         setOutputMode(data.state.outputMode || data.settings.outputMode || 'local')
-        setBotTokenDraft(data.settings.botToken || '')
+        setHasSavedBotToken(Boolean(data.settings?.hasSavedBotToken))
+        setBotTokenDraft('')
         setSelectedLibrarySoundscapeId(activeSoundscapeId)
         setTranscriptionEnabled(false)
         setTransitionProposalsEnabled(false)
@@ -115,6 +117,7 @@ function App() {
         )
         setBootstrap(data)
         setOutputMode(data.state.outputMode || data.settings.outputMode || 'local')
+        setHasSavedBotToken(Boolean(data.settings?.hasSavedBotToken))
         setTranscriptionEnabled(false)
         setTransitionProposalsEnabled(false)
         setTranscriptionProfile(bootstrapTranscriptionProfile)
@@ -1258,6 +1261,7 @@ function App() {
       approveTransition={approveTransition}
       bootstrap={bootstrap}
       botTokenDraft={botTokenDraft}
+      hasSavedBotToken={hasSavedBotToken}
       chooseDiscordGuild={chooseDiscordGuild}
       chooseDiscordVoiceChannel={chooseDiscordVoiceChannel}
       soundscapes={effectiveSoundscapes}

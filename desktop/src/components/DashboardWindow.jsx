@@ -85,6 +85,7 @@ function DashboardWindow({
   handleTransitionProposalToggle,
   handleTransitionTimeoutChange,
   handleTranscriptionToggle,
+  hasSavedBotToken,
   isSessionActive,
   isSessionBusy,
   isSessionStarting,
@@ -204,6 +205,7 @@ function DashboardWindow({
 
   const controlRailProps = {
     botTokenDraft,
+    hasSavedBotToken,
     chooseDiscordGuild,
     chooseDiscordVoiceChannel,
     soundscapes,

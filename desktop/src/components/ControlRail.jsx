@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 
 function ControlRail({
   botTokenDraft,
+  hasSavedBotToken,
   chooseDiscordGuild,
   chooseDiscordVoiceChannel,
   discordTargets,
@@ -23,11 +24,17 @@ function ControlRail({
 }) {
   const [isEditingBotToken, setIsEditingBotToken] = useState(false)
   const displayedBotToken = useMemo(() => {
-    if (isEditingBotToken || !botTokenDraft) {
+    if (isEditingBotToken) {
       return botTokenDraft
     }
+    if (botTokenDraft) {
+      return botTokenDraft.replace(/./g, '•')
+    }
+    if (hasSavedBotToken) {
+      return '••••••••••••••••'
+    }
     return botTokenDraft.replace(/./g, '•')
-  }, [botTokenDraft, isEditingBotToken])
+  }, [botTokenDraft, hasSavedBotToken, isEditingBotToken])
 
   return (
     <aside className="control-rail">
@@ -89,9 +96,12 @@ function ControlRail({
             placeholder="Paste the bot token once. The dashboard will own the rest of the Discord wiring."
           />
           <div className="button-row">
-            <button className="primary-button" onClick={saveBotToken} disabled={state.discordDiscoveryInFlight}>Save And Resolve</button>
-            <button className="ghost-button" onClick={refreshDiscordTargets} disabled={!botTokenDraft.trim() || state.discordDiscoveryInFlight}>Refresh Targets</button>
+            <button className="primary-button" onClick={saveBotToken} disabled={!botTokenDraft.trim() || state.discordDiscoveryInFlight}>Save And Resolve</button>
+            <button className="ghost-button" onClick={refreshDiscordTargets} disabled={!(botTokenDraft.trim() || hasSavedBotToken) || state.discordDiscoveryInFlight}>Refresh Targets</button>
           </div>
+          {hasSavedBotToken ? (
+            <p className="status-copy subdued">Token is saved in Windows Credential Manager.</p>
+          ) : null}
           {state.discordBotUser ? (
             <p className="status-copy">Signed in as <strong>{state.discordBotUser.username}</strong>.</p>
           ) : null}

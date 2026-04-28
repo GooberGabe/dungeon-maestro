@@ -11,12 +11,18 @@ const { syncConfigIntoState, ensureDiscordSelection, resolveDiscordTargets, buil
 const { startSidecarProcess, sendSidecarCommand, resolvePendingCommand, cleanup: cleanupSidecar } = require('./sidecar.cjs')
 const { previewTrackSource } = require('./preview.cjs')
 const { createMainWindow, togglePinnedHud, syncHudWindowSize, emitState: emitStateToWindows, showDashboardWindow } = require('./windows.cjs')
+const { readBotTokenCredential, writeBotTokenCredential, deleteBotTokenCredential } = require('./credentials.cjs')
 
 // --- Helpers ---
 
 function getBootstrapData() {
+  const { botToken, ...safeSettings } = desktopSettings
   return {
-    settings: desktopSettings,
+    settings: {
+      ...safeSettings,
+      botToken: '',
+      hasSavedBotToken: Boolean(botToken),
+    },
     config: appConfig,
     state: sessionState,
   }
@@ -24,6 +30,26 @@ function getBootstrapData() {
 
 function emitState() {
   emitStateToWindows(getBootstrapData)
+}
+
+async function hydrateBotTokenFromCredentialStore(legacyBotToken = '') {
+  const normalizedLegacyToken = String(legacyBotToken || '').trim()
+  const storedToken = await readBotTokenCredential()
+  if (storedToken) {
+    desktopSettings.botToken = storedToken
+    if (normalizedLegacyToken) {
+      saveDesktopSettings()
+    }
+    return
+  }
+
+  if (!normalizedLegacyToken) {
+    desktopSettings.botToken = ''
+    return
+  }
+
+  desktopSettings.botToken = await writeBotTokenCredential(normalizedLegacyToken)
+  saveDesktopSettings()
 }
 
 function syncStateAliases() {
@@ -617,8 +643,14 @@ ipcMain.handle('dashboard:delete-collection', (_event, collectionId) => {
   return deleteCollectionConfig(collectionId)
 })
 
-ipcMain.handle('dashboard:save-bot-token', (_event, token) => {
-  desktopSettings.botToken = String(token || '').trim()
+ipcMain.handle('dashboard:save-bot-token', async (_event, token) => {
+  const normalizedToken = String(token || '').trim()
+  if (normalizedToken) {
+    desktopSettings.botToken = await writeBotTokenCredential(normalizedToken)
+  } else {
+    await deleteBotTokenCredential()
+    desktopSettings.botToken = ''
+  }
   desktopSettings.discordGuildId = null
   desktopSettings.discordVoiceChannelId = null
   saveDesktopSettings()
@@ -901,8 +933,9 @@ ipcMain.handle('hud:dismiss-transition', async () => {
 
 // --- App Lifecycle ---
 
-app.whenReady().then(() => {
-  loadDesktopSettings()
+app.whenReady().then(async () => {
+  const { legacyBotToken } = loadDesktopSettings()
+  await hydrateBotTokenFromCredentialStore(legacyBotToken)
   syncPlaybackPreferencesIntoState()
   syncSessionPreferencesIntoState()
   syncConfigIntoState()

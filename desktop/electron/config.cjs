@@ -104,10 +104,15 @@ function ensureUsableConfigPath() {
 }
 
 function loadDesktopSettings() {
+  let legacyBotToken = ''
   try {
     const raw = fs.readFileSync(userSettingsPath(), 'utf8')
     const payload = JSON.parse(raw)
-    Object.assign(desktopSettings, payload)
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      legacyBotToken = normalizeTextInput(payload.botToken)
+      delete payload.botToken
+      Object.assign(desktopSettings, payload)
+    }
     if (desktopSettings.configPath && desktopSettings.configPath.includes('tabletop-dj')) {
       desktopSettings.configPath = desktopSettings.configPath.replace('tabletop-dj', 'dungeon-maestro')
     }
@@ -151,11 +156,13 @@ function loadDesktopSettings() {
   }
 
   ensureUsableConfigPath()
+  return { legacyBotToken }
 }
 
 function saveDesktopSettings() {
   fs.mkdirSync(path.dirname(userSettingsPath()), { recursive: true })
-  fs.writeFileSync(userSettingsPath(), JSON.stringify(desktopSettings, null, 2), 'utf8')
+  const { botToken: _ignored, ...persistedSettings } = desktopSettings
+  fs.writeFileSync(userSettingsPath(), JSON.stringify(persistedSettings, null, 2), 'utf8')
 }
 
 function loadAppConfig(configPath) {
