@@ -145,6 +145,7 @@ function pythonExecutable() {
   const candidates = []
 
   if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'sidecar-python', 'python', 'python.exe'))
     candidates.push(path.join(process.resourcesPath, 'sidecar-python', 'Scripts', 'python.exe'))
   }
 

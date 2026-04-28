@@ -51,6 +51,57 @@ function userSettingsPath() {
   return path.join(app.getPath('userData'), 'dashboard-settings.json')
 }
 
+function defaultUserConfigPath() {
+  const { app } = require('electron')
+  return path.join(app.getPath('userData'), 'dungeon-maestro.yaml')
+}
+
+function findBundledConfigTemplatePath() {
+  const candidates = [
+    path.resolve(__dirname, '..', '..', 'dungeon-maestro.yaml'),
+    path.resolve(process.resourcesPath || '', 'dungeon-maestro.yaml'),
+    path.resolve(process.resourcesPath || '', 'app.asar', 'dungeon-maestro.yaml'),
+  ]
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
+function writeFallbackConfigTemplate(targetPath) {
+  const fallbackConfig = {
+    settings: {
+      default_soundscape: null,
+    },
+    soundscapes: {},
+    collections: {},
+  }
+  fs.writeFileSync(targetPath, yaml.dump(fallbackConfig, { lineWidth: 120, noRefs: true }), 'utf8')
+}
+
+function ensureUsableConfigPath() {
+  const normalizedConfigPath = normalizeTextInput(desktopSettings.configPath)
+  if (normalizedConfigPath && fs.existsSync(normalizedConfigPath)) {
+    return
+  }
+
+  const userConfigPath = defaultUserConfigPath()
+  fs.mkdirSync(path.dirname(userConfigPath), { recursive: true })
+
+  if (!fs.existsSync(userConfigPath)) {
+    const templatePath = findBundledConfigTemplatePath()
+    if (templatePath) {
+      fs.copyFileSync(templatePath, userConfigPath)
+    } else {
+      writeFallbackConfigTemplate(userConfigPath)
+    }
+  }
+
+  desktopSettings.configPath = userConfigPath
+}
+
 function loadDesktopSettings() {
   try {
     const raw = fs.readFileSync(userSettingsPath(), 'utf8')
@@ -97,6 +148,8 @@ function loadDesktopSettings() {
   } catch {
     // Keep defaults on first run.
   }
+
+  ensureUsableConfigPath()
 }
 
 function saveDesktopSettings() {

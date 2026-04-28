@@ -43,6 +43,10 @@
     ],
     "extraResources": [
       {
+        "from": "../dungeon-maestro.yaml",
+        "to": "dungeon-maestro.yaml"
+      },
+      {
         "from": "sidecar-python",
         "to": "sidecar-python",
         "filter": [
