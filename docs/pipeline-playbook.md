@@ -12,6 +12,10 @@ The playbook covers:
 - Operator checklists for release runs
 - Failure triage by workflow stage
 
+Related process documents:
+
+- [llm-code-audit-checklist.md](llm-code-audit-checklist.md)
+
 Primary workflow files:
 
 - [.github/workflows/ci-pr.yml](../.github/workflows/ci-pr.yml)

@@ -120,6 +120,10 @@ From repo root:
 
 Pipeline operation details, release checklists, and branch protection setup live in [docs/pipeline-playbook.md](docs/pipeline-playbook.md).
 
+### LLM Audit Checklist
+
+Iterative, approval-gated code audit guidance for LLM-assisted maintenance lives in [docs/llm-code-audit-checklist.md](docs/llm-code-audit-checklist.md).
+
 ### Local Config Files
 
 - Copy [dungeon-maestro.yaml.example](dungeon-maestro.yaml.example) to a local [dungeon-maestro.yaml](dungeon-maestro.yaml) for personal testing.
