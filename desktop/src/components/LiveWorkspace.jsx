@@ -1,5 +1,6 @@
 import { useRef, useCallback, useState } from 'react'
 
+import { ICONS, assetPath } from '../constants'
 import { formatPlaybackTime, usePlaybackPosition } from '../playbackProgress'
 
 const DROP_ZONE_END = '__END__'
@@ -365,7 +366,7 @@ function LiveWorkspace({
                             title={buttonTitle}
                           >
                             <img
-                              src={buttonDisabled ? '/play-button-grayed-out.svg' : showPause ? '/pause-button.svg' : '/play-button.svg'}
+                              src={buttonDisabled ? ICONS.playDisabled : showPause ? ICONS.pause : ICONS.play}
                               alt={showPause ? 'Pause' : showResume ? 'Resume' : 'Play'}
                               draggable={false}
                               style={{ width: 'var(--icon-lg)', height: 'var(--icon-lg)' }}
@@ -424,7 +425,7 @@ function LiveWorkspace({
                         title="Open collection"
                       >
                         <img
-                          src="/open-folder.svg"
+                          src={assetPath('open-folder.svg')}
                           alt="Open"
                           style={{ width: 'var(--icon-lg)', height: 'var(--icon-lg)' }}
                         />

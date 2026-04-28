@@ -8,6 +8,7 @@ import FeedWorkspace from './FeedWorkspace'
 import LibraryWorkspace from './LibraryWorkspace'
 import LiveWorkspace from './LiveWorkspace'
 import PlaybackController from './PlaybackController'
+import { ICONS } from '../constants'
 
 function useNarrowViewport(breakpoint = 1100) {
   const [narrow, setNarrow] = useState(() => window.innerWidth <= breakpoint)
@@ -380,7 +381,7 @@ function DashboardWindow({
       </main>
 
       <button className={`dashboard-fab ${isSoundscapeEditing ? 'hidden' : ''}`} type="button" onClick={togglePinnedHud} title="Collapse into pinned HUD" aria-hidden={isSoundscapeEditing} tabIndex={isSoundscapeEditing ? -1 : 0}>
-        <img src="/flip.svg" alt="Collapse into pinned HUD" />
+        <img src={ICONS.flip} alt="Collapse into pinned HUD" />
       </button>
 
       {isCreateCollectionPromptOpen ? (

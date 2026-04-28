@@ -2,15 +2,17 @@ export const VIEW_MODE = typeof window !== 'undefined' && new URLSearchParams(wi
   ? 'hud'
   : 'dashboard'
 
+export const assetPath = (name) => `${import.meta.env.BASE_URL}${name}`
+
 export const ICONS = {
-  flip: '/flip.svg',
-  next: '/next-button.svg',
-  play: '/play-button.svg',
-  playDisabled: '/play-button-grayed-out.svg',
-  pause: '/pause-button.svg',
-  speaker: '/speaker.svg',
-  mute: '/mute.svg',
-  logo: '/logo-min-gold.svg',
+  flip: assetPath('flip.svg'),
+  next: assetPath('next-button.svg'),
+  play: assetPath('play-button.svg'),
+  playDisabled: assetPath('play-button-grayed-out.svg'),
+  pause: assetPath('pause-button.svg'),
+  speaker: assetPath('speaker.svg'),
+  mute: assetPath('mute.svg'),
+  logo: assetPath('logo-min-gold.svg'),
 }
 
 export function getSoundscapeId(soundscape) {
