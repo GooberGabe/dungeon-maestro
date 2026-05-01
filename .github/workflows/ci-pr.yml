@@ -31,6 +31,10 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      - name: Release guard (strict, tracked files)
+        working-directory: desktop
+        run: npm run guard:release-secrets:strict
+
       - name: Run desktop unit tests
         working-directory: desktop
         run: npm run test:unit

@@ -16,6 +16,7 @@ from .vad import SileroVadGate
 
 
 EventCallback = Callable[[str, dict[str, object]], None]
+ComplianceEventCallback = Callable[[dict[str, object]], None]
 
 
 def normalize_output_mode(output_mode: str | None) -> str:
@@ -749,11 +750,15 @@ class LiveSessionRuntime:
             voice_channel_id=self._options.discord_voice_channel_id,
             playback_controller=self._playback_controller,
             on_track_finished=self._handle_output_track_finished,
+            on_compliance_event=self._handle_compliance_event,
             crossfade_enabled=self._crossfade_enabled,
             crossfade_duration=self._crossfade_duration,
         )
         bridge.start()
         return bridge
+
+    def _handle_compliance_event(self, payload: dict[str, object]) -> None:
+        self._emit("compliance_event", payload)
 
     def _play_track_on_active_output(self, track) -> None:
         if self._status["outputMode"] == "discord":

@@ -134,6 +134,19 @@ Deliverable:
 
 - Broken and suspicious reference report with fix priority
 
+### Phase 5.1: Discord Compliance Integrity
+
+Checklist:
+
+1. Verify no self-bot or user-token authentication paths exist.
+2. Verify Discord intents remain least-privilege and match runtime requirements only.
+3. Verify token values are not persisted in plaintext config files, logs, or artifacts.
+4. Verify compliance and secret-guard checks are enforced in CI and release workflows.
+
+Deliverable:
+
+- Discord compliance integrity report with any policy-risk deltas
+
 ### Phase 6: Standards and Similar-Project Comparison
 
 Checklist:

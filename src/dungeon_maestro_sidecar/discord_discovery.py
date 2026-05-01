@@ -6,6 +6,8 @@ import json
 import os
 import sys
 
+from .discord_compliance import assert_intents_configuration
+
 
 def _load_discord_module():
     try:
@@ -24,6 +26,11 @@ async def discover_discord_targets(token: str) -> dict[str, object]:
     discord = _load_discord_module()
     intents = discord.Intents.none()
     intents.guilds = True
+    assert_intents_configuration(
+        intents,
+        required_enabled={"guilds"},
+        allowed_enabled={"guilds"},
+    )
 
     results: dict[str, object] = {"bot_user": None, "guilds": []}
 
@@ -65,7 +72,7 @@ async def discover_discord_targets(token: str) -> dict[str, object]:
                 await self.close()
 
     client = DiscoveryClient(intents=intents)
-    await client.start(token)
+    await asyncio.wait_for(client.start(token), timeout=30.0)
     return results
 
 

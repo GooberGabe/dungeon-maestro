@@ -35,7 +35,7 @@ jobs:
         run: npm ci
 
       - name: Release guard (tracked files)
-        run: node desktop/scripts/release-secret-guard.cjs --mode=git --root .
+        run: node desktop/scripts/release-secret-guard.cjs --mode=git --strict --root .
 
       - name: Build desktop renderer
         working-directory: desktop
@@ -86,7 +86,10 @@ jobs:
         run: npm run package:win
 
       - name: Release guard (packaged resources)
-        run: node desktop/scripts/release-secret-guard.cjs --mode=dir --root desktop/release/win-unpacked/resources
+        run: node desktop/scripts/release-secret-guard.cjs --mode=dir --strict --root desktop/release/win-unpacked/resources
+
+      - name: Release guard (desktop dist artifact)
+        run: node desktop/scripts/release-secret-guard.cjs --mode=dir --strict --root desktop/dist
 
       - name: Collect installer artifacts
         shell: pwsh

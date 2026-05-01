@@ -27,6 +27,7 @@ function startSidecarProcess(emitState, handleSidecarMessage) {
         PYTHONUNBUFFERED: '1',
         PYTHONUTF8: '1',
         PYTHONIOENCODING: 'utf-8',
+        DUNGEON_MAESTRO_DISCORD_COMPLIANCE_STRICT: process.env.DUNGEON_MAESTRO_DISCORD_COMPLIANCE_STRICT || '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     }

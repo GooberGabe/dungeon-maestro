@@ -14,9 +14,10 @@
     "build": "vite build",
     "test:unit": "vitest run",
     "guard:release-secrets": "node ./scripts/release-secret-guard.cjs --mode=git --root ..",
+    "guard:release-secrets:strict": "node ./scripts/release-secret-guard.cjs --mode=git --strict --root ..",
     "prepare:sidecar-runtime": "powershell -ExecutionPolicy Bypass -File ./scripts/prepare-sidecar-runtime.ps1",
     "start": "electron .",
-    "package:win": "npm run guard:release-secrets && npm run prepare:sidecar-runtime && npm run build && electron-builder --win nsis --x64 --publish never"
+    "package:win": "npm run guard:release-secrets:strict && npm run prepare:sidecar-runtime && npm run build && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",

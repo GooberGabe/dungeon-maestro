@@ -16,17 +16,26 @@ const args = new Map(
 
 const mode = args.get('--mode') || 'git'
 const rootPath = path.resolve(args.get('--root') || '.')
+const strictMode = args.has('--strict') || (args.get('--strict') || '').toLowerCase() === 'true'
 
 const textExtensions = new Set([
   '.js', '.cjs', '.mjs', '.jsx', '.ts', '.tsx', '.json', '.yaml', '.yml', '.ini', '.cfg', '.env', '.txt', '.md', '.toml', '.py', '.ps1', '.sh',
 ])
 
+const strictAssignmentExtensions = new Set([
+  '.json', '.yaml', '.yml', '.ini', '.cfg', '.env', '.toml', '.txt',
+])
+
 const blockedPatterns = [
   /mfa\.[A-Za-z0-9_-]{20,}/g,
   /[MN][A-Za-z\d]{23}\.[\w-]{6}\.[\w-]{20,}/g,
+  /(?:Bot\s+)?[Bb]earer\s+[A-Za-z0-9\-_.=]{20,}/g,
+  /(?:ghp|github_pat)_[A-Za-z0-9_]{20,}/g,
   /(discord(?:_|-)?token|bot(?:_|-)?token|api(?:_|-)?key|secret|password)\s*[:=]\s*['\"][^'\"\n]{16,}['\"]/gi,
   /DISCORD_BOT_TOKEN\s*=\s*[^\s#]{16,}/g,
 ]
+
+const suspiciousAssignmentPattern = /(discord(?:_|-)?token|bot(?:_|-)?token|api(?:_|-)?key|secret|password|authorization)\s*[:=]\s*['"]?[A-Za-z0-9_\-./+=]{16,}['"]?\s*$/i
 
 const ignoredPathFragments = [
   `${path.sep}.git${path.sep}`,
@@ -91,6 +100,23 @@ function scanFile(filePath) {
       })
     }
   }
+
+  if (strictMode && strictAssignmentExtensions.has(path.extname(filePath).toLowerCase())) {
+    const lines = content.split(/\r?\n/)
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index]
+      if (line.trim().startsWith('#') || line.trim().startsWith('//')) {
+        continue
+      }
+      if (suspiciousAssignmentPattern.test(line)) {
+        findings.push({
+          pattern: '/suspiciousAssignmentPattern/',
+          snippet: `${index + 1}: ${line.slice(0, 160)}`,
+        })
+      }
+    }
+  }
+
   return findings
 }
 
@@ -137,4 +163,4 @@ if (findings.length) {
   process.exit(1)
 }
 
-console.log(`Release secret guard passed for mode=${mode} root=${normalizeForDisplay(rootPath) || '.'}`)
+console.log(`Release secret guard passed for mode=${mode} strict=${strictMode} root=${normalizeForDisplay(rootPath) || '.'}`)
