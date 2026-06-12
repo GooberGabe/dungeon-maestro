@@ -1,3 +1,5 @@
+const { dialog } = require('electron')
+
 function registerIpcHandlers({
   ipcMain,
   desktopSettings,
@@ -79,6 +81,34 @@ function registerIpcHandlers({
 
   ipcMain.handle('dashboard:delete-collection', (_event, collectionId) => {
     return deleteCollectionConfig(collectionId)
+  })
+
+  ipcMain.handle('dashboard:export-soundscapes', async () => {
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: 'Export Soundscapes',
+      defaultPath: 'dungeon-maestro-export.yaml',
+      filters: [{ name: 'YAML', extensions: ['yaml', 'yml'] }],
+    })
+    if (canceled || !filePath) {
+      return { cancelled: true }
+    }
+    return configEditors.exportSoundscapesToFile(filePath)
+  })
+
+  ipcMain.handle('dashboard:import-soundscapes', async (_event, { mode } = {}) => {
+    if (sessionState.sessionRunning || sessionState.startupInProgress) {
+      throw new Error('Stop the current session before importing soundscapes.')
+    }
+    const { filePaths, canceled } = await dialog.showOpenDialog({
+      title: 'Import Soundscapes',
+      filters: [{ name: 'YAML', extensions: ['yaml', 'yml'] }],
+      properties: ['openFile'],
+    })
+    if (canceled || !filePaths || !filePaths[0]) {
+      return { cancelled: true }
+    }
+    const normalizedMode = mode === 'replace' ? 'replace' : 'merge'
+    return configEditors.importSoundscapesFromFile(filePaths[0], normalizedMode)
   })
 
   ipcMain.handle('dashboard:save-bot-token', async (_event, token) => {

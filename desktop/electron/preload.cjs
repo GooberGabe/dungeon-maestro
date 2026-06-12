@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('dungeonMaestro', {
   saveCollectionEdits: (collectionId, payload) => ipcRenderer.invoke('dashboard:save-collection-edits', collectionId, payload),
   deleteSoundscape: (soundscapeId) => ipcRenderer.invoke('dashboard:delete-soundscape', soundscapeId),
   deleteCollection: (collectionId) => ipcRenderer.invoke('dashboard:delete-collection', collectionId),
+  exportSoundscapes: () => ipcRenderer.invoke('dashboard:export-soundscapes'),
+  importSoundscapes: (payload) => ipcRenderer.invoke('dashboard:import-soundscapes', payload),
   saveBotToken: (token) => ipcRenderer.invoke('dashboard:save-bot-token', token),
   refreshDiscordTargets: () => ipcRenderer.invoke('dashboard:refresh-discord-targets'),
   setDiscordGuild: (guildId) => ipcRenderer.invoke('dashboard:set-discord-guild', guildId),

@@ -40,6 +40,8 @@ function DashboardWindow({
   cancelSoundscapeEdit,
   chooseDiscordGuild,
   chooseDiscordVoiceChannel,
+  exportSoundscapes,
+  importSoundscapes,
   collectionActionError,
   collectionPickerSearchQuery,
   collectionSoundscapeSearchQuery,
@@ -205,7 +207,9 @@ function DashboardWindow({
 
   const controlRailProps = {
     botTokenDraft,
+    exportSoundscapes,
     hasSavedBotToken,
+    importSoundscapes,
     chooseDiscordGuild,
     chooseDiscordVoiceChannel,
     soundscapes,

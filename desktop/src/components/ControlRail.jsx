@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react'
 
 function ControlRail({
   botTokenDraft,
+  exportSoundscapes,
   hasSavedBotToken,
+  importSoundscapes,
   chooseDiscordGuild,
   chooseDiscordVoiceChannel,
   discordTargets,
@@ -23,6 +25,9 @@ function ControlRail({
   state,
 }) {
   const [isEditingBotToken, setIsEditingBotToken] = useState(false)
+  const [libraryIoMode, setLibraryIoMode] = useState('merge')
+  const [libraryIoStatus, setLibraryIoStatus] = useState('')
+  const [libraryIoPending, setLibraryIoPending] = useState(false)
   const displayedBotToken = useMemo(() => {
     if (isEditingBotToken) {
       return botTokenDraft
@@ -35,6 +40,41 @@ function ControlRail({
     }
     return botTokenDraft.replace(/./g, '•')
   }, [botTokenDraft, hasSavedBotToken, isEditingBotToken])
+
+  const handleExport = async () => {
+    setLibraryIoStatus('')
+    setLibraryIoPending(true)
+    try {
+      const response = await exportSoundscapes()
+      if (!response?.cancelled) {
+        setLibraryIoStatus(`Exported ${response.exported} soundscape${response.exported !== 1 ? 's' : ''}.`)
+      }
+    } catch (error) {
+      setLibraryIoStatus(error?.message || 'Export failed.')
+    } finally {
+      setLibraryIoPending(false)
+    }
+  }
+
+  const handleImport = async () => {
+    setLibraryIoStatus('')
+    setLibraryIoPending(true)
+    try {
+      const response = await importSoundscapes(libraryIoMode)
+      if (!response?.cancelled) {
+        const { importedCount, skippedCount } = response
+        let msg = `Imported ${importedCount} soundscape${importedCount !== 1 ? 's' : ''}.`
+        if (skippedCount > 0) {
+          msg += ` ${skippedCount} skipped (already exist).`
+        }
+        setLibraryIoStatus(msg)
+      }
+    } catch (error) {
+      setLibraryIoStatus(error?.message || 'Import failed.')
+    } finally {
+      setLibraryIoPending(false)
+    }
+  }
 
   return (
     <aside className="control-rail">
@@ -146,6 +186,40 @@ function ControlRail({
           ) : null}
           <p className="status-copy">{state.discordStatus}</p>
           <p className="status-copy subdued">{state.sidecarStatus}</p>
+        </section>
+
+        <section className="panel library-io-panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Library</p>
+              <h2>Import / Export</h2>
+            </div>
+          </div>
+
+          <div className="settings-stack">
+            <div className="settings-row">
+              <label className="settings-name" htmlFor="library-io-mode">Import mode</label>
+              <select
+                id="library-io-mode"
+                className="select-field compact-select-field"
+                value={libraryIoMode}
+                onChange={(event) => { setLibraryIoMode(event.target.value); setLibraryIoStatus('') }}
+                disabled={libraryIoPending}
+              >
+                <option value="merge">Merge</option>
+                <option value="replace">Replace all</option>
+              </select>
+            </div>
+            {libraryIoMode === 'replace' && (
+              <p className="status-copy">All existing soundscapes will be removed before importing.</p>
+            )}
+          </div>
+
+          <div className="button-row">
+            <button className="primary-button" onClick={handleImport} disabled={libraryIoPending}>Import</button>
+            <button className="ghost-button" onClick={handleExport} disabled={libraryIoPending}>Export</button>
+          </div>
+          {libraryIoStatus && <p className="status-copy">{libraryIoStatus}</p>}
         </section>
       </div>
     </aside>

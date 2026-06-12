@@ -626,6 +626,16 @@ function App() {
     await window.dungeonMaestro.togglePinnedHud()
   }
 
+  const exportSoundscapes = () => window.dungeonMaestro.exportSoundscapes()
+
+  const importSoundscapes = async (mode) => {
+    const response = await window.dungeonMaestro.importSoundscapes({ mode })
+    if (!response?.cancelled && response?.bootstrap) {
+      setBootstrap(response.bootstrap)
+    }
+    return response
+  }
+
   const applyLiveSessionSettings = async (nextSettings) => {
     const updated = await window.dungeonMaestro.updateSessionSettings(nextSettings)
     setBootstrap(updated)
@@ -1273,6 +1283,8 @@ function App() {
       crossfadePauseEnabled={crossfadePauseEnabled}
       dismissTransition={dismissTransition}
       discordTargets={discordTargets}
+      exportSoundscapes={exportSoundscapes}
+      importSoundscapes={importSoundscapes}
       endSession={endSession}
       handleCrossfadeDurationChange={handleCrossfadeDurationChange}
       handleCrossfadePauseToggle={handleCrossfadePauseToggle}

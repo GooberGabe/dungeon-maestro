@@ -236,6 +236,69 @@ function createConfigEditors({
     })
   }
 
+  function exportSoundscapesToFile(filePath) {
+    const { parsed } = loadParsedConfig()
+    normalizeConfigDocument(parsed)
+    const soundscapesMap = getSoundscapesMap(parsed)
+    const exportDoc = { soundscapes: soundscapesMap }
+    fs.writeFileSync(filePath, yaml.dump(exportDoc, { lineWidth: 120, noRefs: true }), 'utf8')
+    return { exported: Object.keys(soundscapesMap).length }
+  }
+
+  function importSoundscapesFromFile(filePath, mode) {
+    const raw = fs.readFileSync(filePath, 'utf8')
+    let importedDoc
+    try {
+      importedDoc = yaml.load(raw) || {}
+    } catch {
+      throw new Error('The selected file is not valid YAML.')
+    }
+
+    if (!importedDoc.soundscapes || typeof importedDoc.soundscapes !== 'object' || Array.isArray(importedDoc.soundscapes)) {
+      throw new Error('The selected file does not contain a valid soundscapes block.')
+    }
+
+    const importedSoundscapesMap = importedDoc.soundscapes
+    const importedIds = Object.keys(importedSoundscapesMap).filter(Boolean)
+    if (importedIds.length === 0) {
+      throw new Error('The selected file contains no soundscapes to import.')
+    }
+
+    let importedCount = 0
+    let skippedCount = 0
+
+    const bootstrap = withNormalizedConfigDocument((parsed) => {
+      const soundscapesMap = getSoundscapesMap(parsed)
+
+      if (mode === 'replace') {
+        for (const key of Object.keys(soundscapesMap)) {
+          delete soundscapesMap[key]
+        }
+        for (const id of importedIds) {
+          soundscapesMap[id] = importedSoundscapesMap[id]
+          importedCount++
+        }
+        parsed.soundscapes = soundscapesMap
+        parsed.settings.default_soundscape = importedIds[0] || ''
+      } else {
+        for (const id of importedIds) {
+          if (soundscapesMap[id]) {
+            skippedCount++
+          } else {
+            soundscapesMap[id] = importedSoundscapesMap[id]
+            importedCount++
+          }
+        }
+        parsed.soundscapes = soundscapesMap
+        if (!parsed.settings.default_soundscape && importedCount > 0) {
+          parsed.settings.default_soundscape = importedIds[0] || ''
+        }
+      }
+    })
+
+    return { bootstrap, importedCount, skippedCount }
+  }
+
   function reorderCollectionSoundscapes(collectionId, sourceSoundscapeId, beforeSoundscapeId) {
     const normalizedCollectionId = normalizeTextInput(collectionId)
     const normalizedSourceId = normalizeTextInput(sourceSoundscapeId)
@@ -288,6 +351,8 @@ function createConfigEditors({
     removeSoundscapeFromSessionCollection,
     deleteSessionCollection,
     reorderCollectionSoundscapes,
+    exportSoundscapesToFile,
+    importSoundscapesFromFile,
   }
 }
 
