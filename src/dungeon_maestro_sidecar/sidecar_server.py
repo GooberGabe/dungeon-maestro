@@ -244,6 +244,15 @@ class SidecarServer:
             self._last_status = await asyncio.to_thread(self._runtime.dismiss_transition)
             return self._last_status
 
+        if command == "play_stream":
+            if self._runtime is None:
+                raise RuntimeError("Session is not running")
+            source = payload.get("source", "")
+            if not source or not isinstance(source, str) or not source.strip():
+                raise RuntimeError("source is required")
+            self._last_status = await asyncio.to_thread(self._runtime.play_stream, source.strip())
+            return self._last_status
+
         raise RuntimeError(f"Unknown command: {command}")
 
     async def _start_runtime(self) -> None:

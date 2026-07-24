@@ -510,6 +510,44 @@ class LiveSessionRuntime:
         )
         return self.status_snapshot()
 
+    def play_stream(self, source: str) -> dict[str, object]:
+        """Resolve a URL or search query and play it directly via the active output.
+
+        Volume, crossfade, and mute settings from the running session apply automatically
+        because this method reuses the same player/bridge and PlaybackController.
+        """
+        with self._session_lock:
+            if self._session is None:
+                raise RuntimeError("Session is not running")
+
+        resolver = YtDlpTrackResolver()
+        track = resolver.resolve(source)
+
+        self._status.update(
+            {
+                "currentTrackTitle": track.title,
+                "currentTrackIndex": None,
+                "pendingTransition": None,
+            }
+        )
+        with self._session_lock:
+            self._current_track = track
+        self._play_track_on_active_output(track)
+        if self._status["playbackPaused"]:
+            self._apply_pause_state(True)
+        self._emit(
+            "track_started",
+            {
+                "soundscape": self._status.get("activeSoundscape"),
+                "collection": self._status.get("activeCollection"),
+                "track_index": None,
+                "title": track.title,
+                "duration_seconds": track.duration_seconds,
+                "initial": False,
+            },
+        )
+        return self.status_snapshot()
+
     def approve_transition(self) -> dict[str, object]:
         with self._session_lock:
             if self._session is None:

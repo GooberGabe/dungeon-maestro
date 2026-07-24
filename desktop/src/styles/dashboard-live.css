@@ -261,3 +261,25 @@
 .debug-log-line + .debug-log-line {
   margin-top: 4px;
 }
+
+/* Stream workspace */
+.stream-workspace {
+  padding: 18px;
+}
+
+.stream-panel {
+  display: grid;
+  gap: 14px;
+  max-width: 640px;
+}
+
+.stream-search-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.stream-search-input {
+  flex: 1;
+  min-width: 0;
+}
