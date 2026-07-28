@@ -400,6 +400,18 @@ function registerIpcHandlers({
     await sendSidecarCommand('dismiss_transition', {})
     return getBootstrapData()
   })
+
+  ipcMain.handle('session:play-stream', async (_event, source) => {
+    if (!sessionState.sessionRunning || sessionState.startupInProgress) {
+      throw new Error('Session is not running')
+    }
+    const normalizedSource = String(source || '').trim()
+    if (!normalizedSource) {
+      throw new Error('source is required')
+    }
+    await sendSidecarCommand('play_stream', { source: normalizedSource })
+    return getBootstrapData()
+  })
 }
 
 module.exports = {

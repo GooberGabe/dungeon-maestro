@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('dungeonMaestro', {
   playTrack: (collectionId, trackIndex) => ipcRenderer.invoke('session:play-track', collectionId, trackIndex),
   approveTransition: () => ipcRenderer.invoke('hud:approve-transition'),
   dismissTransition: () => ipcRenderer.invoke('hud:dismiss-transition'),
+  playStream: (source) => ipcRenderer.invoke('session:play-stream', source),
   onStateChanged: (callback) => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('state:changed', listener)

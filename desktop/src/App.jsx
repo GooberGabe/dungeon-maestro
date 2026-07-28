@@ -857,6 +857,12 @@ function App() {
     setBootstrap(updated)
   }
 
+  const playStream = async (source) => {
+    if (!state.sessionRunning || state.startupInProgress) return
+    const updated = await window.dungeonMaestro.playStream(source)
+    setBootstrap(updated)
+  }
+
   const selectLibrarySoundscape = (soundscapeId) => {
     if (isSoundscapeEditing && soundscapeId !== selectedLibrarySoundscapeId) {
       return
@@ -1403,6 +1409,7 @@ function App() {
       workspaceTab={workspaceTab}
       openAddCollectionSoundscapesDialog={openAddCollectionSoundscapesDialog}
       openUseSoundscapeDialog={openUseSoundscapeDialog}
+      playStream={playStream}
     />
   )
 }

@@ -5,6 +5,7 @@ import ControlRail from './ControlRail'
 import ContextMenu from './ContextMenu'
 import CreateCollectionModal from './CreateCollectionModal'
 import FeedWorkspace from './FeedWorkspace'
+import StreamWorkspace from './StreamWorkspace'
 import LibraryWorkspace from './LibraryWorkspace'
 import LiveWorkspace from './LiveWorkspace'
 import PlaybackController from './PlaybackController'
@@ -167,6 +168,7 @@ function DashboardWindow({
   endSession,
   openAddCollectionSoundscapesDialog,
   openUseSoundscapeDialog,
+  playStream,
 }) {
   const narrow = useNarrowViewport()
   const [contextMenu, setContextMenu] = useState(null)
@@ -234,6 +236,7 @@ function DashboardWindow({
   const tabs = [
     { id: 'live', label: 'Controls' },
     { id: 'soundscapes', label: 'Soundscapes' },
+    { id: 'stream', label: 'Stream' },
     { id: 'feed', label: 'Feed' },
   ]
 
@@ -324,6 +327,12 @@ function DashboardWindow({
             openUseSoundscapeDialog={openUseSoundscapeDialog}
             updateKeywordAtIndex={updateKeywordAtIndex}
             updateTrackAtIndex={updateTrackAtIndex}
+          />
+        ) : workspaceTab === 'stream' ? (
+          <StreamWorkspace
+            isSessionActive={isSessionActive}
+            isSessionStarting={isSessionStarting}
+            playStream={playStream}
           />
         ) : workspaceTab === 'feed' ? (
           <FeedWorkspace
